@@ -1,0 +1,19 @@
+# binaries
+/sparkle
+*.exe
+
+# go
+*.test
+*.out
+/coverage.out
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# os
+.DS_Store
+
+# local sparkle workspace state — never commit
+/.sparkle/
