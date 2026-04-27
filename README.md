@@ -18,6 +18,8 @@ go run ./cmd/sparkle
 - `tab` / `shift+tab` — cycle tabs
 - `1`–`6` — jump to a tab
 - `n` — capture a new spark (Sparks tab)
+- `e` — edit selected spark's title
+- `a` — archive / unarchive selected spark
 - `j` / `k` (or arrows) — move cursor
 - `g` / `G` — jump to first / last
 - `enter` — save spark · `esc` — cancel form
@@ -70,7 +72,7 @@ Domain types are unit-tested. More to come as features land — see [`docs/testi
 See [`docs/roadmap.md`](docs/roadmap.md).
 
 1. Local TUI foundation — **shipped** (M1)
-2. Sparks (Markdown-backed) — **list + create shipped**, edit/archive/search next (M2)
+2. Sparks (Markdown-backed) — **list + create + edit + archive shipped**, search next (M2)
 3. Projects (M3)
 4. Tracking, charts, mouse support (M4)
 5. AI-ready architecture with mock provider (M5)

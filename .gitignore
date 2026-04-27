@@ -12,8 +12,9 @@
 .idea/
 *.swp
 
-# os
-.DS_Store
-
 # local sparkle workspace state — never commit
 /.sparkle/
+
+# other
+.DS_Store
+FIXES.md

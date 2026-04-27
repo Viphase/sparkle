@@ -1,4 +1,4 @@
-# CLAUDE.md — Sparkle Project Control Map
+# AGENTS.md — Sparkle Project Control Map
 
 You are working on **Sparkle**, a local-first Go TUI app for turning rough project sparks into structured, trackable project workspaces.
 

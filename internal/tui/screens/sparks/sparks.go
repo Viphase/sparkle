@@ -15,10 +15,11 @@ import (
 	"github.com/viphase/sparkle/internal/tui/theme"
 )
 
-// Saver is the slice of storage the sparks screen needs. The markdown.Store
-// satisfies it; a fake satisfies it in tests.
+// Saver is the slice of storage the sparks screen needs. *markdown.Store
+// satisfies it; tests use a fake.
 type Saver interface {
 	SaveSpark(domain.Spark) error
+	LoadSpark(id string) (domain.Spark, error)
 	ListSparks() ([]domain.Spark, error)
 }
 
@@ -36,8 +37,9 @@ type Model struct {
 	cursor int
 	loaded bool
 
-	mode  mode
-	input textinput.Model
+	mode      mode
+	input     textinput.Model
+	editingID string // empty when creating, set when editing
 
 	now func() time.Time // injectable for tests
 }
@@ -63,9 +65,7 @@ func New(t theme.Theme, saver Saver) screens.Screen {
 func (m *Model) Init() tea.Cmd { return nil }
 func (m *Model) Title() string { return "Sparks" }
 
-// InForm reports whether the sparks screen is currently in title-entry mode.
-// The root model uses this to decide whether to consume top-level keys (q,
-// tab, 1-6) or yield them to the input field.
+// InForm reports whether the screen is currently in title-entry mode.
 func (m *Model) InForm() bool { return m.mode == modeForm }
 
 func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
@@ -75,9 +75,6 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		m.loaded = true
 		if m.cursor >= len(m.items) {
 			m.cursor = 0
-			if len(m.items) > 0 {
-				m.cursor = 0
-			}
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -93,9 +90,26 @@ func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	switch key.String() {
 	case "n":
 		m.mode = modeForm
+		m.editingID = ""
 		m.input.Reset()
 		m.input.Focus()
 		return m, textinput.Blink
+	case "e":
+		if len(m.items) == 0 {
+			return m, nil
+		}
+		sp := m.items[m.cursor]
+		m.mode = modeForm
+		m.editingID = sp.ID
+		m.input.SetValue(sp.Title)
+		m.input.CursorEnd()
+		m.input.Focus()
+		return m, textinput.Blink
+	case "a":
+		if len(m.items) == 0 {
+			return m, nil
+		}
+		return m, m.toggleArchiveCmd(m.items[m.cursor])
 	case "j", "down":
 		if m.cursor+1 < len(m.items) {
 			m.cursor++
@@ -118,6 +132,7 @@ func (m *Model) updateForm(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		m.mode = modeList
+		m.editingID = ""
 		m.input.Blur()
 		return m, nil
 	case "enter":
@@ -127,31 +142,72 @@ func (m *Model) updateForm(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		}
 		m.mode = modeList
 		m.input.Blur()
-		return m, m.saveSparkCmd(title)
+		cmd := m.saveSparkCmd(title)
+		m.editingID = ""
+		return m, cmd
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(key)
 	return m, cmd
 }
 
-// saveSparkCmd builds a tea.Cmd that creates the spark, persists it, then
-// reloads the list. Errors flow through the unified ErrorMsg envelope.
+// saveSparkCmd creates or updates a spark, then re-lists. When editingID is
+// set, the existing spark is loaded so its description/tags/created_at survive
+// the title edit.
 func (m *Model) saveSparkCmd(title string) tea.Cmd {
 	saver := m.saver
+	editingID := m.editingID
 	now := m.now().UTC()
-	sp := domain.Spark{
-		ID:        domain.NewSparkID(now),
-		Title:     title,
-		Status:    domain.SparkStatusNew,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
 	return func() tea.Msg {
 		if saver == nil {
 			return msgs.ErrorMsg{Source: "save-spark", Err: fmt.Errorf("no storage configured")}
 		}
+		var sp domain.Spark
+		if editingID != "" {
+			existing, err := saver.LoadSpark(editingID)
+			if err != nil {
+				return msgs.ErrorMsg{Source: "load-spark", Err: err}
+			}
+			existing.Title = title
+			existing.UpdatedAt = now
+			sp = existing
+		} else {
+			sp = domain.Spark{
+				ID:        domain.NewSparkID(now),
+				Title:     title,
+				Status:    domain.SparkStatusNew,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+		}
 		if err := saver.SaveSpark(sp); err != nil {
 			return msgs.ErrorMsg{Source: "save-spark", Err: err}
+		}
+		items, err := saver.ListSparks()
+		if err != nil {
+			return msgs.ErrorMsg{Source: "list-sparks", Err: err}
+		}
+		return msgs.SparksLoadedMsg{Items: items}
+	}
+}
+
+// toggleArchiveCmd flips a spark's archived state. Archived → new; anything
+// else → archived. UpdatedAt is bumped.
+func (m *Model) toggleArchiveCmd(sp domain.Spark) tea.Cmd {
+	saver := m.saver
+	now := m.now().UTC()
+	if sp.Status == domain.SparkStatusArchived {
+		sp.Status = domain.SparkStatusNew
+	} else {
+		sp.Status = domain.SparkStatusArchived
+	}
+	sp.UpdatedAt = now
+	return func() tea.Msg {
+		if saver == nil {
+			return msgs.ErrorMsg{Source: "archive-spark", Err: fmt.Errorf("no storage configured")}
+		}
+		if err := saver.SaveSpark(sp); err != nil {
+			return msgs.ErrorMsg{Source: "archive-spark", Err: err}
 		}
 		items, err := saver.ListSparks()
 		if err != nil {
@@ -170,14 +226,14 @@ func (m *Model) View(width, height int) string {
 	}
 
 	if !m.loaded {
-		return box.Render(centerCard(width, height, m.theme,
+		return box.Render(centerCard(width, height,
 			header,
 			lipgloss.NewStyle().Foreground(m.theme.Muted).Render("Loading sparks…"),
 		))
 	}
 
 	if len(m.items) == 0 {
-		return box.Render(centerCard(width, height, m.theme,
+		return box.Render(centerCard(width, height,
 			header,
 			lipgloss.NewStyle().Foreground(m.theme.Foreground).Render("No sparks yet."),
 			lipgloss.NewStyle().Foreground(m.theme.Subtle).Italic(true).
@@ -187,17 +243,17 @@ func (m *Model) View(width, height int) string {
 
 	rows := []string{header, ""}
 	for i, sp := range m.items {
-		rows = append(rows, m.renderRow(i, sp, width-4))
+		rows = append(rows, m.renderRow(i, sp))
 	}
 	rows = append(rows, "",
 		lipgloss.NewStyle().Foreground(m.theme.Subtle).
-			Render(fmt.Sprintf("%d sparks  ·  n new  ·  j/k move  ·  esc back", len(m.items))),
+			Render(fmt.Sprintf("%d sparks  ·  n new  ·  e edit  ·  a archive  ·  j/k move", len(m.items))),
 	)
 
 	return box.Render(strings.Join(rows, "\n"))
 }
 
-func (m *Model) renderRow(i int, sp domain.Spark, w int) string {
+func (m *Model) renderRow(i int, sp domain.Spark) string {
 	title := strings.TrimSpace(sp.Title)
 	if title == "" {
 		title = "(untitled)"
@@ -212,6 +268,9 @@ func (m *Model) renderRow(i int, sp domain.Spark, w int) string {
 	if i == m.cursor {
 		cursor = lipgloss.NewStyle().Foreground(m.theme.Accent).Bold(true).Render("▌ ")
 		titleStyle = titleStyle.Foreground(m.theme.Primary).Bold(true)
+	}
+	if sp.Status == domain.SparkStatusArchived {
+		titleStyle = titleStyle.Foreground(m.theme.Subtle).Strikethrough(true)
 	}
 	statusCell := statusStyle.Render(string(sp.Status))
 	titleCell := titleStyle.Render(title)
@@ -240,8 +299,11 @@ func (m *Model) formView(width, height int, header string) string {
 		Padding(1, 2).
 		Width(min(width-8, 56))
 
-	prompt := lipgloss.NewStyle().Foreground(m.theme.Subtle).
-		Render("Capture a spark — enter to save, esc to cancel")
+	promptText := "Capture a spark — enter to save, esc to cancel"
+	if m.editingID != "" {
+		promptText = "Edit spark — enter to save, esc to cancel"
+	}
+	prompt := lipgloss.NewStyle().Foreground(m.theme.Subtle).Render(promptText)
 
 	card := border.Render(lipgloss.JoinVertical(lipgloss.Left,
 		prompt,
@@ -253,7 +315,7 @@ func (m *Model) formView(width, height int, header string) string {
 	return lipgloss.Place(width-4, height-2, lipgloss.Center, lipgloss.Center, block)
 }
 
-func centerCard(width, height int, t theme.Theme, header string, lines ...string) string {
+func centerCard(width, height int, header string, lines ...string) string {
 	body := append([]string{header, ""}, lines...)
 	block := lipgloss.JoinVertical(lipgloss.Center, body...)
 	return lipgloss.Place(width-4, height-2, lipgloss.Center, lipgloss.Center, block)
