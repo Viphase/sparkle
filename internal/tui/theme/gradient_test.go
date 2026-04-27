@@ -1,0 +1,41 @@
+package theme
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+)
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
+
+func TestApplyGradPreservesText(t *testing.T) {
+	in := "Sparkle"
+	out := ApplyGrad(in, "#a78bfa", "#f0abfc", true)
+	if got := stripANSI(out); got != in {
+		t.Errorf("text changed: got %q, want %q", got, in)
+	}
+}
+
+func TestApplyGradEmpty(t *testing.T) {
+	if out := ApplyGrad("", "#aabbcc", "#112233", false); out != "" {
+		t.Errorf("empty input should return empty string, got %q", out)
+	}
+}
+
+func TestApplyGradInvalidColorFallsBack(t *testing.T) {
+	in := "Hello"
+	out := ApplyGrad(in, "not-a-color", "#112233", false)
+	if got := stripANSI(out); got != in {
+		t.Errorf("plain fallback should preserve text: got %q, want %q", got, in)
+	}
+}
+
+func TestApplyGradHandlesMultiByte(t *testing.T) {
+	in := "✦ Sparkle ✧"
+	out := ApplyGrad(in, "#a78bfa", "#f0abfc", false)
+	if !strings.Contains(stripANSI(out), "Sparkle") {
+		t.Errorf("multi-byte input lost: %q", stripANSI(out))
+	}
+}

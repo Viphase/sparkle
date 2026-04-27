@@ -13,17 +13,49 @@ go mod tidy
 go run ./cmd/sparkle
 ```
 
-Press `q` to quit.
+### Keys
+
+- `tab` / `shift+tab` — cycle tabs
+- `1`–`6` — jump to a tab
+- `n` — capture a new spark (Sparks tab)
+- `j` / `k` (or arrows) — move cursor
+- `g` / `G` — jump to first / last
+- `enter` — save spark · `esc` — cancel form
+- `q` / `ctrl+c` — quit (`q` is yielded to the input field while typing)
+
+On first run Sparkle creates a workspace at `$HOME/sparkle` (override with `$SPARKLE_HOME`):
+
+```
+$HOME/sparkle/
+  sparks/
+  projects/
+  .sparkle/
+    events/
+```
 
 ## What's here so far
 
-- `cmd/sparkle/` — entry point
-- `internal/domain/` — pure domain types (Workspace, Spark, Project)
-- `internal/tui/` — Bubble Tea root model
-- `internal/tui/theme/` — color tokens (no hardcoded colors in views)
-- `internal/config/` — config struct (TOML loader to follow)
+- `cmd/sparkle/` — entry point, workspace bootstrap
+- `internal/domain/` — pure types (Workspace, Spark, Project) + ID generator
+- `internal/workspace/` — workspace path resolution and bootstrap
+- `internal/storage/markdown/` — frontmatter parser, atomic writer, spark store
+- `internal/tui/` — Bubble Tea root, routing, theme-driven rendering
+- `internal/tui/msgs/` — shared message envelopes (`ErrorMsg`, `StatusMsg`, `SparksLoadedMsg`)
+- `internal/tui/components/{tabs,statusbar,logo}/` — shared UI widgets
+- `internal/tui/theme/` — token struct, three palettes (`pastel-dark`, `pastel-light`, `nova`), gradient helper
+- `internal/tui/screens/{dashboard,sparks,projects,tracker,ai,settings}/`
+- `internal/config/` — config struct (TOML loader still to follow)
 
-Not implemented yet: storage, sparks/projects screens, tracker, AI. Those land in later milestones.
+### What works in the UI
+
+- Centered dashboard with a gradient `Sparkle` wordmark, sparkle field decoration, and live spark counts.
+- Sparks tab: list view, real disk reads, `n` opens an inline title form, `enter` writes a spark to disk and refreshes the list.
+- Themed status bar with global hint + error envelope; `tab` / `shift+tab` and `1`–`6` shortcuts on the bar.
+- Three palettes ready to switch between (picker UI lands with the settings rewrite).
+
+### Inspirations
+
+UI patterns (gradient wordmark, decorative field around the title, theme-as-tokens) follow [charmbracelet/crush](https://github.com/charmbracelet/crush). Sparkle replaces Crush's diagonals with sparkle glyphs and uses its own palette.
 
 ## Tests
 
@@ -37,12 +69,12 @@ Domain types are unit-tested. More to come as features land — see [`docs/testi
 
 See [`docs/roadmap.md`](docs/roadmap.md).
 
-1. Local TUI foundation — **in progress**
-2. Sparks (Markdown-backed)
-3. Projects
-4. Tracking, charts, mouse support
-5. AI-ready architecture with mock provider
-6. Real AI provider
+1. Local TUI foundation — **shipped** (M1)
+2. Sparks (Markdown-backed) — **list + create shipped**, edit/archive/search next (M2)
+3. Projects (M3)
+4. Tracking, charts, mouse support (M4)
+5. AI-ready architecture with mock provider (M5)
+6. Real AI provider (M6)
 
 ## Architecture
 

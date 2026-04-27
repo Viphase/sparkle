@@ -1,25 +1,40 @@
+// Package theme defines color tokens and theme palettes for the TUI.
+// Views never hardcode colors — they reference theme tokens or pull a
+// pre-built lipgloss.Style from the theme.
 package theme
 
 import "github.com/charmbracelet/lipgloss"
 
+// Theme is the full set of color tokens used across screens. New tokens belong
+// here; views should not reach for raw colors.
 type Theme struct {
-	Name       string
-	Primary    lipgloss.Color
-	Accent     lipgloss.Color
-	Muted      lipgloss.Color
-	Background lipgloss.Color
-	Foreground lipgloss.Color
-	Border     lipgloss.Color
-}
+	Name string
 
-func PastelDark() Theme {
-	return Theme{
-		Name:       "pastel-dark",
-		Primary:    lipgloss.Color("#c4b5fd"),
-		Accent:     lipgloss.Color("#fbcfe8"),
-		Muted:      lipgloss.Color("#9ca3af"),
-		Background: lipgloss.Color("#1e1e2e"),
-		Foreground: lipgloss.Color("#e5e7eb"),
-		Border:     lipgloss.Color("#374151"),
-	}
+	// Surfaces
+	Background  lipgloss.Color
+	Surface     lipgloss.Color
+	Overlay     lipgloss.Color
+	Border      lipgloss.Color
+	BorderFocus lipgloss.Color
+
+	// Foreground tints
+	Foreground lipgloss.Color
+	Muted      lipgloss.Color
+	Subtle     lipgloss.Color
+
+	// Accents
+	Primary     lipgloss.Color
+	PrimaryGlow lipgloss.Color
+	Accent      lipgloss.Color
+	AccentGlow  lipgloss.Color
+
+	// Gradient endpoints — used by the title wordmark and other glow effects.
+	GradientFrom lipgloss.Color
+	GradientTo   lipgloss.Color
+
+	// Semantic
+	Success lipgloss.Color
+	Warning lipgloss.Color
+	Danger  lipgloss.Color
+	Info    lipgloss.Color
 }
