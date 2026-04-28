@@ -22,6 +22,11 @@ func (s *Store) ProjectPath(id string) string {
 	return filepath.Join(s.ProjectDir(id), "project.md")
 }
 
+// NotesPath returns the notes.md path for a project.
+func (s *Store) NotesPath(id string) string {
+	return filepath.Join(s.ProjectDir(id), "notes.md")
+}
+
 // SaveProject writes a project to disk, preserving any existing body the user
 // may have written by hand. Notes.md is created alongside project.md if absent.
 func (s *Store) SaveProject(p domain.Project) error {
@@ -51,14 +56,16 @@ func (s *Store) SaveProject(p domain.Project) error {
 		return err
 	}
 	// Bootstrap notes.md the first time only — never overwrite user content.
-	notesPath := filepath.Join(dir, "notes.md")
+	notesPath := s.NotesPath(p.ID)
 	if _, err := os.Stat(notesPath); os.IsNotExist(err) {
 		title := p.Title
 		if title == "" {
 			title = p.ID
 		}
 		notesContent := fmt.Sprintf("# Notes — %s\n\nFreeform notes for this project.\n", title)
-		_ = os.WriteFile(notesPath, []byte(notesContent), 0o644)
+		if err := WriteAtomic(notesPath, []byte(notesContent), 0o644); err != nil {
+			return fmt.Errorf("write notes: %w", err)
+		}
 	}
 	return nil
 }
@@ -126,6 +133,9 @@ func applyProjectToDocument(doc Document, p domain.Project) Document {
 	fm["tags"] = p.Tags
 	fm["created_at"] = formatTime(p.CreatedAt)
 	fm["updated_at"] = formatTime(p.UpdatedAt)
+	if doc.Body == "" && p.Body != "" {
+		doc.Body = p.Body
+	}
 	if doc.Body == "" {
 		doc.Body = defaultProjectBody()
 	}
@@ -141,6 +151,7 @@ func documentToProject(doc Document) (domain.Project, error) {
 		GitHubURL:      stringField(fm, "github_url"),
 		TargetAudience: stringField(fm, "target_audience"),
 		Tags:           stringSliceField(fm, "tags"),
+		Body:           doc.Body,
 	}
 	if !p.Status.Valid() {
 		return domain.Project{}, fmt.Errorf("invalid project status %q", p.Status)

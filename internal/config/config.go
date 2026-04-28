@@ -16,13 +16,33 @@ const FileName = "config.toml"
 type Config struct {
 	Theme          string
 	WordsThreshold int
+	// MouseEnabled controls tea.EnableMouseCellMotion. Defaults to true.
+	MouseEnabled bool
+	// AnthropicAPIKey enables the real Anthropic provider. If empty the app
+	// falls back to the local mock provider. Can also be supplied through the
+	// ANTHROPIC_API_KEY environment variable; the env var wins over the file.
+	AnthropicAPIKey string
+	// AIModel is the Anthropic model used when the real provider is active.
+	// Defaults to "claude-haiku-4-5".
+	AIModel string
 }
 
 func Defaults() Config {
 	return Config{
 		Theme:          "pastel-dark",
 		WordsThreshold: 10,
+		MouseEnabled:   true,
+		AIModel:        "claude-haiku-4-5",
 	}
+}
+
+// ResolvedAPIKey returns the Anthropic API key, preferring the ANTHROPIC_API_KEY
+// environment variable over the config-file value.
+func (c Config) ResolvedAPIKey() string {
+	if env := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); env != "" {
+		return env
+	}
+	return strings.TrimSpace(c.AnthropicAPIKey)
 }
 
 // Path returns the config path inside a workspace root.
@@ -106,6 +126,24 @@ func parseInto(cfg *Config, raw string) error {
 				return fmt.Errorf("parse config line %d: words_threshold must be positive", lineNo+1)
 			}
 			cfg.WordsThreshold = n
+		case "mouse_enabled":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: mouse_enabled must be true or false", lineNo+1)
+			}
+			cfg.MouseEnabled = b
+		case "anthropic_api_key":
+			s, err := parseString(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: %w", lineNo+1, err)
+			}
+			cfg.AnthropicAPIKey = s
+		case "ai_model":
+			s, err := parseString(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: %w", lineNo+1, err)
+			}
+			cfg.AIModel = s
 		default:
 			// Preserve forward compatibility: future config keys should not
 			// make an older binary refuse to boot.
@@ -168,10 +206,18 @@ func Save(root string, cfg Config) error {
 }
 
 func marshalConfig(cfg Config) []byte {
-	return []byte(fmt.Sprintf("# Sparkle workspace preferences\ntheme = %q\nwords_threshold = %d\n",
-		cfg.Theme,
-		cfg.WordsThreshold,
-	))
+	var b strings.Builder
+	b.WriteString("# Sparkle workspace preferences\n")
+	b.WriteString(fmt.Sprintf("theme = %q\n", cfg.Theme))
+	b.WriteString(fmt.Sprintf("words_threshold = %d\n", cfg.WordsThreshold))
+	b.WriteString(fmt.Sprintf("mouse_enabled = %v\n", cfg.MouseEnabled))
+	b.WriteString(fmt.Sprintf("ai_model = %q\n", cfg.AIModel))
+	// anthropic_api_key is intentionally omitted from default writes to avoid
+	// accidentally committing keys. Set it manually or use ANTHROPIC_API_KEY env.
+	if cfg.AnthropicAPIKey != "" {
+		b.WriteString(fmt.Sprintf("anthropic_api_key = %q\n", cfg.AnthropicAPIKey))
+	}
+	return []byte(b.String())
 }
 
 func defaultConfigBytes() []byte {

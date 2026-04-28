@@ -67,10 +67,9 @@ Playful, high-distinction, colorful, still readable.
 Suggested sections:
 - top status bar
 - stats cards
-- weekly activity chart
-- tracking summary
 - active project cards
 - recent sparks
+- tracking panel (see "Dashboard Tracking" below)
 - shortcut footer
 
 Workspace switching lives in Settings, not on the dashboard. v1 assumes one active workspace at a time.
@@ -108,6 +107,8 @@ Project detail can show tabs:
 - AI
 
 ### Dashboard Tracking
+
+Tracking lives as a panel inside the Dashboard, not a separate top-level screen.
 
 Prioritize charts:
 - daily consistency

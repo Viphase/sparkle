@@ -42,7 +42,7 @@ Read these files when relevant:
 - Product spec: `docs/product-spec.md`
 - Architecture: `docs/architecture.md`
 - Storage format: `docs/storage-format.md`
-- Tracking: `docs/tracking.md`
+- Dashboard tracking: `docs/tracking.md`
 - AI guide design: `docs/ai-guide.md`
 - TUI/UX design: `docs/tui-ux.md`
 - Roadmap: `docs/roadmap.md`
@@ -56,7 +56,7 @@ Read these files when relevant:
 4. Implement app shell and navigation.
 5. Implement sparks.
 6. Implement project workspace.
-7. Implement tracker and charts.
+7. Implement dashboard tracking and charts.
 8. Add mock AI provider and AI screen.
 9. Write README roadmap.
 10. Ensure `go test ./...` passes.
@@ -69,8 +69,7 @@ Read these files when relevant:
 - User can create a spark.
 - User can promote a spark into a project.
 - User can view/edit project fields.
-- Dashboard shows spark/project counts.
-- Tracker shows at least one chart.
+- Dashboard shows spark/project counts and at least one tracking chart.
 - Themes can be switched.
 - README contains roadmap and architecture overview.
 - AI provider interface and mock provider exist.

@@ -46,6 +46,9 @@ func TestSaveAndLoadProjectRoundtrip(t *testing.T) {
 	if len(got.Tags) != 2 || got.Tags[0] != "tui" || got.Tags[1] != "go" {
 		t.Errorf("tags: %v", got.Tags)
 	}
+	if got.Body == "" {
+		t.Error("body should be loaded from project.md")
+	}
 }
 
 func TestSaveProjectCreatesNotesMd(t *testing.T) {

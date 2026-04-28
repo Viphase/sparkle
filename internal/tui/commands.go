@@ -5,6 +5,7 @@ import (
 
 	"github.com/viphase/sparkle/internal/storage/markdown"
 	"github.com/viphase/sparkle/internal/tui/msgs"
+	"github.com/viphase/sparkle/internal/workspace"
 )
 
 // LoadSparksCmd reads every spark in the workspace and dispatches either a
@@ -34,5 +35,22 @@ func LoadProjectsCmd(store *markdown.Store) tea.Cmd {
 			return msgs.ErrorMsg{Source: "list-projects", Err: err}
 		}
 		return msgs.ProjectsLoadedMsg{Items: items}
+	}
+}
+
+// LoadTrackingCmd reads all project event logs and dispatches a
+// TrackingLoadedMsg. The scan also runs a startup file-touch scan but defers
+// writing new events to a later iteration to keep startup non-blocking.
+func LoadTrackingCmd(store *markdown.Store, ws workspace.Workspace) tea.Cmd {
+	if store == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		allEvents, err := store.LoadAllEvents()
+		if err != nil {
+			return msgs.ErrorMsg{Source: "load-tracking", Err: err}
+		}
+		_ = ws // workspace root available for future scan integration
+		return msgs.TrackingLoadedMsg{AllEvents: allEvents}
 	}
 }

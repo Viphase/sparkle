@@ -31,7 +31,7 @@ It should be quick to capture and easy to later develop.
 Examples:
 - "Go TUI writing manager with AI"
 - "CLI for organizing startup ideas"
-- "Novel tracker with daily consistency chart"
+- "Novel writing dashboard with daily consistency chart"
 
 ### Project
 
@@ -46,7 +46,7 @@ A project contains:
 - roadmap
 - milestones
 - notes
-- tracker data
+- dashboard tracking data
 
 ## Product Flow
 
@@ -57,7 +57,7 @@ A project contains:
 5. User selects a spark and promotes it into a project.
 6. Sparkle creates project Markdown files.
 7. User fills project sections manually or with future AI guidance.
-8. Tracker automatically detects activity and shows consistency graphs.
+8. Dashboard tracking automatically detects activity and shows consistency graphs.
 
 ## Main Screens
 
@@ -74,9 +74,17 @@ Show:
 - active project count
 - recent projects
 - today’s work stats
-- weekly consistency chart
-- next milestones
 - shortcuts
+- next milestones
+- tracking panel:
+  - daily consistency chart
+  - weekly activity chart
+  - word count trend
+  - project velocity
+  - streak
+  - session time
+  - milestones
+  - task status
 
 Workspace switching lives in Settings — v1 assumes one active workspace at a time.
 
@@ -107,23 +115,9 @@ Features:
 - GitHub link section
 - roadmap
 - notes
-- tracker link
 - AI guide link
 
-### Tracker
-
-Purpose:
-- show consistency and momentum
-
-Features:
-- daily consistency chart
-- weekly activity chart
-- word count trend
-- project velocity
-- streak
-- session time
-- milestones
-- task status
+Project detail can show lightweight activity hints or links, but tracking charts, streaks, velocity, milestones, and task-status summaries live on the Dashboard. Do not add a separate Tracker screen.
 
 ### AI Guide
 
@@ -145,8 +139,8 @@ Include:
 - sparks
 - projects
 - Markdown storage
-- automatic tracking basics
-- charts
+- automatic tracking basics on the Dashboard
+- Dashboard charts
 - themes
 - mock AI interface
 

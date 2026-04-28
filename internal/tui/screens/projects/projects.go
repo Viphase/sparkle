@@ -22,6 +22,7 @@ type Loader interface {
 	ListProjects() ([]domain.Project, error)
 	SaveProject(domain.Project) error
 	ProjectPath(id string) string // path to project.md, used by open-in-editor
+	NotesPath(id string) string   // path to notes.md, used by open-in-editor
 }
 
 // pane tracks which side has keyboard focus.
@@ -101,6 +102,8 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		m.loaded = true
 		m.clampCursor()
 		return m, nil
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
 	case tea.KeyMsg:
 		if m.inputActive {
 			return m.updateInput(msg)
@@ -109,6 +112,51 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 			return m.updateDetail(msg)
 		}
 		return m.updateList(msg)
+	}
+	return m, nil
+}
+
+// updateMouse handles wheel scrolling and click-to-select in the list pane.
+// Y is content-relative (root already subtracted the tab-bar height).
+func (m *Model) updateMouse(msg tea.MouseMsg) (screens.Screen, tea.Cmd) {
+	if m.inputActive {
+		return m, nil // text input active — ignore mouse
+	}
+	// Compute pane widths exactly as View() does.
+	lw := listPaneW
+	// We don't have access to width here, but lw=30 is the default.
+	// Clicks in X < lw are in the list pane; X > lw are in the detail pane.
+	inListPane := msg.X < lw
+
+	switch msg.Type {
+	case tea.MouseWheelUp:
+		if m.cursor > 0 {
+			m.cursor--
+			m.ensureCursorVisible()
+		}
+	case tea.MouseWheelDown:
+		if m.cursor+1 < len(m.items) {
+			m.cursor++
+			m.ensureCursorVisible()
+		}
+	case tea.MouseLeft:
+		if inListPane {
+			// List pane layout (no box padding):
+			//   row 0 → header "Projects"
+			//   row 1 → blank
+			//   row 2 → first item
+			itemRow := msg.Y - 2
+			if itemRow >= 0 && m.offset+itemRow < len(m.items) {
+				m.cursor = m.offset + itemRow
+				m.activePane = paneList
+				m.ensureCursorVisible()
+			}
+		} else {
+			// Clicking in the detail pane switches focus to it.
+			if len(m.items) > 0 {
+				m.activePane = paneDetail
+			}
+		}
 	}
 	return m, nil
 }
@@ -143,7 +191,13 @@ func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m, m.openInEditorCmd(p)
+		return m, m.openProjectInEditorCmd(p)
+	case "O":
+		p, ok := m.selectedProject()
+		if !ok {
+			return m, nil
+		}
+		return m, m.openNotesInEditorCmd(p)
 	}
 	return m, nil
 }
@@ -182,7 +236,13 @@ func (m *Model) updateDetail(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m, m.openInEditorCmd(p)
+		return m, m.openProjectInEditorCmd(p)
+	case "O":
+		p, ok := m.selectedProject()
+		if !ok {
+			return m, nil
+		}
+		return m, m.openNotesInEditorCmd(p)
 	}
 	return m, nil
 }
@@ -266,15 +326,29 @@ func (m *Model) updateInput(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	return m, cmd
 }
 
-// openInEditorCmd suspends the TUI, opens project.md in $EDITOR, then
+// openProjectInEditorCmd suspends the TUI, opens project.md in $EDITOR, then
 // reloads the project list so any edits are reflected immediately.
-func (m *Model) openInEditorCmd(p domain.Project) tea.Cmd {
+func (m *Model) openProjectInEditorCmd(p domain.Project) tea.Cmd {
 	if m.loader == nil {
 		return func() tea.Msg {
 			return msgs.ErrorMsg{Source: "open-project", Err: fmt.Errorf("no storage configured")}
 		}
 	}
-	path := m.loader.ProjectPath(p.ID)
+	return m.openPathInEditorCmd("project", m.loader.ProjectPath(p.ID))
+}
+
+// openNotesInEditorCmd opens notes.md for the selected project. Notes are
+// regular Markdown on disk and are never overwritten by SaveProject.
+func (m *Model) openNotesInEditorCmd(p domain.Project) tea.Cmd {
+	if m.loader == nil {
+		return func() tea.Msg {
+			return msgs.ErrorMsg{Source: "open-notes", Err: fmt.Errorf("no storage configured")}
+		}
+	}
+	return m.openPathInEditorCmd("notes", m.loader.NotesPath(p.ID))
+}
+
+func (m *Model) openPathInEditorCmd(source, path string) tea.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vi"
@@ -283,7 +357,7 @@ func (m *Model) openInEditorCmd(p domain.Project) tea.Cmd {
 	c := exec.Command(editor, path) //nolint:gosec
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
-			return msgs.ErrorMsg{Source: "editor", Err: err}
+			return msgs.ErrorMsg{Source: "editor-" + source, Err: err}
 		}
 		items, listErr := loader.ListProjects()
 		if listErr != nil {
@@ -519,6 +593,9 @@ func (m *Model) renderDetailPane(width, height int) string {
 	}
 
 	rows = append(rows, "")
+	rows = append(rows, m.renderSectionPreview(p, width)...)
+
+	rows = append(rows, "")
 	rows = append(rows, theme.Fg(m.theme, m.theme.Subtle).Render(m.detailHint()))
 
 	content := strings.Join(rows, "\n")
@@ -541,11 +618,11 @@ func (m *Model) detailHint() string {
 	}
 	if m.activePane == paneDetail {
 		if m.detailField == fldStatus {
-			return "← → change status  j/k select  o open in editor  esc back"
+			return "← → change status  j/k select  o project.md  O notes.md  esc back"
 		}
-		return "e edit  j/k select  ← → status  o open in editor  esc back"
+		return "e edit  j/k select  ← → status  o project.md  O notes.md  esc back"
 	}
-	return "enter/l open detail  o open in editor"
+	return "enter/l open detail  o project.md  O notes.md"
 }
 
 func (m *Model) statusColor(s domain.ProjectStatus) lipgloss.Color {
@@ -576,6 +653,36 @@ func buildFields(p domain.Project) []fieldMeta {
 	}
 }
 
+func (m *Model) renderSectionPreview(p domain.Project, width int) []string {
+	body := strings.TrimSpace(p.Body)
+	if body == "" {
+		return []string{
+			theme.Fg(m.theme, m.theme.Subtle).Render("Sections"),
+			"  " + theme.Fg(m.theme, m.theme.Muted).Render("open project.md to fill description, architecture, and roadmap"),
+		}
+	}
+
+	sectionNames := []string{"Description", "Architecture", "Roadmap"}
+	rows := []string{theme.Fg(m.theme, m.theme.Subtle).Render("Sections")}
+	valueWidth := width - 18
+	if valueWidth < 16 {
+		valueWidth = 16
+	}
+	for _, name := range sectionNames {
+		preview := sectionPreview(body, name)
+		if preview == "" {
+			preview = "(empty)"
+		}
+		preview = truncateRunes(preview, valueWidth)
+		label := theme.Fg(m.theme, m.theme.Muted).Width(14).Render(name)
+		val := theme.Fg(m.theme, m.theme.Foreground).Render(preview)
+		rows = append(rows, "  "+label+val)
+	}
+	rows = append(rows, "  "+theme.Fg(m.theme, m.theme.Muted).Render("Notes")+"        "+
+		theme.Fg(m.theme, m.theme.Foreground).Render("O opens notes.md"))
+	return rows
+}
+
 func nonEmpty(s, fallback string) string {
 	if strings.TrimSpace(s) == "" {
 		return fallback
@@ -595,4 +702,39 @@ func parseTags(s string) []string {
 		}
 	}
 	return out
+}
+
+func sectionPreview(body, heading string) string {
+	lines := strings.Split(body, "\n")
+	var parts []string
+	inSection := false
+	want := "# " + strings.ToLower(strings.TrimSpace(heading))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(trimmed, "# ") {
+			if inSection {
+				break
+			}
+			if lower == want {
+				inSection = true
+			}
+			continue
+		}
+		if inSection && trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func truncateRunes(s string, maxLen int) string {
+	runes := []rune(strings.TrimSpace(s))
+	if len(runes) <= maxLen {
+		return string(runes)
+	}
+	if maxLen <= 1 {
+		return string(runes[:max(0, maxLen)])
+	}
+	return string(runes[:maxLen-1]) + "…"
 }

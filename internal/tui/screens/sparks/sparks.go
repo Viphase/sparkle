@@ -112,6 +112,8 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		m.clampCursor()
 		m.ensureCursorVisible()
 		return m, nil
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
 	case tea.KeyMsg:
 		if m.mode == modeForm {
 			return m.updateForm(msg)
@@ -120,6 +122,46 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 			return m.updateSearch(msg)
 		}
 		return m.updateList(msg)
+	}
+	return m, nil
+}
+
+// updateMouse handles mouse wheel scrolling and click-to-select on list rows.
+// The Y coordinate is content-relative (0 = top of this screen's content area),
+// already adjusted by the root before forwarding.
+func (m *Model) updateMouse(msg tea.MouseMsg) (screens.Screen, tea.Cmd) {
+	if m.mode == modeForm {
+		return m, nil // text input active — ignore mouse
+	}
+	visible := m.visibleItems()
+	switch msg.Type {
+	case tea.MouseWheelUp:
+		if m.cursor > 0 {
+			m.cursor--
+			m.ensureCursorVisible()
+		}
+	case tea.MouseWheelDown:
+		if m.cursor+1 < len(visible) {
+			m.cursor++
+			m.ensureCursorVisible()
+		}
+	case tea.MouseLeft:
+		// Layout inside the box (Padding(1,2)):
+		//   row 0 → top padding
+		//   row 1 → gradient header "Sparks"
+		//   row 2 → blank
+		//   row 3 → search bar (if active/has query) │ first item (no search)
+		//   row 4 → blank after search bar           │ second item
+		//   row 5 → first item (if search active)
+		headerRows := 3 // padding + header + blank
+		if m.mode == modeSearch || m.hasSearch() {
+			headerRows += 2 // search bar + blank separator
+		}
+		itemRow := msg.Y - headerRows
+		if itemRow >= 0 && m.offset+itemRow < len(visible) {
+			m.cursor = m.offset + itemRow
+			m.ensureCursorVisible()
+		}
 	}
 	return m, nil
 }
@@ -158,6 +200,14 @@ func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	case "h":
 		m.toggleArchivedVisibility()
 	case "/":
+		// Disallow search when there are no sparks at all, or when a prior
+		// search has already hidden everything (no point adding another filter).
+		if len(m.items) == 0 {
+			return m, nil
+		}
+		if len(m.visibleItems()) == 0 && !m.hasSearch() {
+			return m, nil
+		}
 		m.mode = modeSearch
 		m.searchInput.SetValue(m.query)
 		m.searchInput.CursorEnd()

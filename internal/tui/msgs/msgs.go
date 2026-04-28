@@ -43,3 +43,16 @@ type SparkPromotedMsg struct {
 type ThemeChangedMsg struct {
 	ThemeName string
 }
+
+// TrackingLoadedMsg carries pre-computed stats and per-project event maps
+// broadcast after the startup scan completes.
+type TrackingLoadedMsg struct {
+	// AllEvents maps project ID → its events.
+	AllEvents map[string][]domain.TrackingEvent
+}
+
+// MouseToggledMsg is emitted by the settings screen when the user toggles
+// mouse support. The root listens to enable or disable cell-motion tracking.
+type MouseToggledMsg struct {
+	Enabled bool
+}

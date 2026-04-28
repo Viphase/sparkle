@@ -435,6 +435,12 @@ func TestClearResetsSearch(t *testing.T) {
 
 func TestSearchModeCountsAsTextInput(t *testing.T) {
 	m := newModel(nil)
+	// '/' is a no-op when there are no sparks; load some first.
+	loaded, _ := m.Update(msgs.SparksLoadedMsg{Items: []domain.Spark{
+		{ID: "1", Title: "Alpha", Status: domain.SparkStatusNew},
+	}})
+	m = loaded.(*Model)
+
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	m = next.(*Model)
 	if !m.InForm() {

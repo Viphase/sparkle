@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	guideai "github.com/viphase/sparkle/internal/ai"
 	"github.com/viphase/sparkle/internal/config"
 	"github.com/viphase/sparkle/internal/storage/markdown"
 	"github.com/viphase/sparkle/internal/tui/components/logo"
@@ -14,7 +15,7 @@ import (
 	"github.com/viphase/sparkle/internal/tui/components/tabs"
 	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/tui/screens"
-	"github.com/viphase/sparkle/internal/tui/screens/ai"
+	screenai "github.com/viphase/sparkle/internal/tui/screens/ai"
 	"github.com/viphase/sparkle/internal/tui/screens/dashboard"
 	"github.com/viphase/sparkle/internal/tui/screens/projects"
 	"github.com/viphase/sparkle/internal/tui/screens/settings"
@@ -35,15 +36,16 @@ var thinkingFrames = []string{"ꕤ"}
 type animationTickMsg struct{}
 
 type Root struct {
-	theme   theme.Theme
-	width   int
-	height  int
-	route   Route
-	frame   int
-	screens map[Route]screens.Screen
-	status  statusbar.Model
-	ws      workspace.Workspace
-	store   *markdown.Store
+	theme        theme.Theme
+	width        int
+	height       int
+	route        Route
+	frame        int
+	screens      map[Route]screens.Screen
+	status       statusbar.Model
+	ws           workspace.Workspace
+	store        *markdown.Store
+	mouseEnabled bool
 }
 
 // NewRoot wires the root model. ws and store may be zero/nil — handy for tests
@@ -71,29 +73,46 @@ func NewRootWithConfig(ws workspace.Workspace, store *markdown.Store, cfg config
 		projectLoader = store
 	}
 
+	// Select AI provider: use real Anthropic provider when an API key is set,
+	// otherwise fall back to the local mock.
+	var aiScreen screens.Screen
+	if key := cfg.ResolvedAPIKey(); key != "" {
+		realProvider := guideai.NewAnthropicProvider(key, cfg.AIModel)
+		aiScreen = screenai.NewWithWorkDir(t, ws.Root, realProvider)
+	} else {
+		aiScreen = screenai.NewWithWorkDir(t, ws.Root)
+	}
+
 	return Root{
-		theme:  t,
-		route:  RouteDashboard,
-		status: statusbar.New(t),
-		ws:     ws,
-		store:  store,
+		theme:        t,
+		route:        RouteDashboard,
+		status:       statusbar.New(t),
+		ws:           ws,
+		store:        store,
+		mouseEnabled: cfg.MouseEnabled,
 		screens: map[Route]screens.Screen{
 			RouteDashboard: dashboard.New(t),
 			RouteSparks:    sparks.New(t, saver, promoter),
 			RouteProjects:  projects.New(t, projectLoader),
-			RouteAI:        ai.New(t),
+			RouteAI:        aiScreen,
 			RouteSettings:  settings.New(t, ws, cfg),
 		},
 	}
 }
 
 func (r Root) Init() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(r.screens)+3)
+	cmds := make([]tea.Cmd, 0, len(r.screens)+5)
 	cmds = append(cmds, animationTickCmd())
+	if r.mouseEnabled {
+		cmds = append(cmds, tea.EnableMouseCellMotion)
+	}
 	if c := LoadSparksCmd(r.store); c != nil {
 		cmds = append(cmds, c)
 	}
 	if c := LoadProjectsCmd(r.store); c != nil {
+		cmds = append(cmds, c)
+	}
+	if c := LoadTrackingCmd(r.store, r.ws); c != nil {
 		cmds = append(cmds, c)
 	}
 	for _, s := range r.screens {
@@ -156,6 +175,24 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return r, tea.Batch(cmds...)
+	case msgs.TrackingLoadedMsg:
+		var cmds []tea.Cmd
+		for rt, s := range r.screens {
+			next, cmd := s.Update(msg)
+			r.screens[rt] = next
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return r, tea.Batch(cmds...)
+	case msgs.MouseToggledMsg:
+		r.mouseEnabled = m.Enabled
+		if m.Enabled {
+			return r, tea.EnableMouseCellMotion
+		}
+		return r, tea.DisableMouse
+	case tea.MouseMsg:
+		return r.handleMouse(m)
 	case msgs.SparkPromotedMsg:
 		// Route to projects, broadcast updated sparks + projects, show status.
 		r.route = RouteProjects
@@ -206,6 +243,15 @@ func (r *Root) handleGlobalKey(m tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 	}
+	// Let the AI screen receive text keys while its chat input is focused.
+	if r.route == RouteAI {
+		if am, ok := r.screens[RouteAI].(*screenai.Model); ok && am.InForm() {
+			if m.String() == "ctrl+c" {
+				return tea.Quit, true
+			}
+			return nil, false
+		}
+	}
 	switch m.String() {
 	case "q", "ctrl+c":
 		return tea.Quit, true
@@ -224,6 +270,88 @@ func (r *Root) handleGlobalKey(m tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// handleMouse dispatches mouse events.
+//   - Clicks in the tab bar (top 2 rows of the app) switch tabs via hit-testing.
+//   - Clicks and wheel events in the content area are forwarded to the active
+//     screen with Y adjusted to be content-relative (0 = first content row).
+//   - Clicks outside the app widget are ignored.
+func (r Root) handleMouse(m tea.MouseMsg) (tea.Model, tea.Cmd) {
+	termW, termH := r.viewport()
+	if termW < minAppWidth || termH < minAppHeight {
+		return r, nil
+	}
+	appW := clamp(termW, minAppWidth, maxAppWidth)
+	appH := clamp(termH, minAppHeight, maxAppHeight)
+	appX := (termW - appW) / 2
+	appY := (termH - appH) / 2
+
+	// tabs = 2 rows (content line + bottom border).
+	// statusbar = 2 rows (top border + content line).
+	const tabsH = 2
+
+	relX := m.X - appX
+	relY := m.Y - appY
+
+	// Ignore events outside the app widget.
+	if relX < 0 || relX >= appW || relY < 0 || relY >= appH {
+		return r, nil
+	}
+
+	if m.Type == tea.MouseLeft && relY < tabsH {
+		// ── Tab bar click ──────────────────────────────────────────
+		labels := r.tabLabels()
+		current := r.currentTabIndex()
+		zones := tabs.Zones(appW, current, labels)
+		for i, z := range zones {
+			if relX >= z.Start && relX < z.End {
+				if i < len(orderedRoutes) {
+					r.route = orderedRoutes[i]
+				}
+				return r, nil
+			}
+		}
+		return r, nil
+	}
+
+	// ── Content area event ─────────────────────────────────────────
+	// Forward to the active screen with Y made content-relative.
+	adjusted := tea.MouseMsg{
+		Type:  m.Type,
+		X:     relX,
+		Y:     relY - tabsH,
+		Alt:   m.Alt,
+		Ctrl:  m.Ctrl,
+		Shift: m.Shift,
+	}
+	next, cmd := r.screens[r.route].Update(adjusted)
+	r.screens[r.route] = next
+	return r, cmd
+}
+
+// tabLabels builds the ordered label slice used for tab rendering and zone
+// computation, matching exactly what View produces.
+func (r Root) tabLabels() []string {
+	labels := make([]string, 0, len(orderedRoutes))
+	for _, rt := range orderedRoutes {
+		label := r.screens[rt].Title()
+		if rt == RouteAI {
+			label = r.thinkingGlyph() + " " + label
+		}
+		labels = append(labels, label)
+	}
+	return labels
+}
+
+// currentTabIndex returns the 0-based index of the active route in orderedRoutes.
+func (r Root) currentTabIndex() int {
+	for i, rt := range orderedRoutes {
+		if rt == r.route {
+			return i
+		}
+	}
+	return 0
 }
 
 func (r Root) View() string {

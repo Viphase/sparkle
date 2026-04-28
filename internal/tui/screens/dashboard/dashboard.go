@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/viphase/sparkle/internal/domain"
+	"github.com/viphase/sparkle/internal/tracker"
 	"github.com/viphase/sparkle/internal/tui/components/logo"
 	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/tui/screens"
@@ -21,10 +22,12 @@ type Model struct {
 	activeCount  int
 	archivedSeen int
 	projectCount int
-	activity     []int
+	stats        domain.TrackingStats
+	allEvents    map[string][]domain.TrackingEvent
+	now          func() time.Time
 }
 
-func New(t theme.Theme) screens.Screen { return Model{theme: t} }
+func New(t theme.Theme) screens.Screen { return Model{theme: t, now: time.Now} }
 
 func (m Model) Init() tea.Cmd { return nil }
 func (m Model) Title() string { return "Dashboard" }
@@ -37,7 +40,6 @@ func (m Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		m.sparkCount = 0
 		m.activeCount = 0
 		m.archivedSeen = 0
-		m.activity = weeklySparkActivity(msg.Items, time.Now())
 		for _, s := range msg.Items {
 			m.sparkCount++
 			switch s.Status {
@@ -49,6 +51,10 @@ func (m Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		}
 	case msgs.ProjectsLoadedMsg:
 		m.projectCount = len(msg.Items)
+	case msgs.TrackingLoadedMsg:
+		m.allEvents = msg.AllEvents
+		merged := mergeAllEvents(msg.AllEvents)
+		m.stats = tracker.Compute(merged, m.clock())
 	}
 	return m, nil
 }
@@ -60,7 +66,13 @@ func (m Model) View(width, height int) string {
 	if height < 1 {
 		height = 1
 	}
-	logoBlock := logo.Render(m.theme, min(width-8, 64))
+	// Pass the full content width so the block-pixel logo can render.
+	// The logo itself is 8 rows (7 letter rows + byline); fall back to the
+	// compact single-line form only when the content area is very small.
+	logoBlock := logo.Render(m.theme, width-4)
+	if height < 12 {
+		logoBlock = logo.Compact(m.theme)
+	}
 
 	stat := func(label string, n int, color lipgloss.Color) string {
 		const innerWidth = 11
@@ -88,7 +100,11 @@ func (m Model) View(width, height int) string {
 		stat("archived", m.archivedSeen, m.theme.Subtle),
 	)
 
-	tracking := m.trackingPreview(min(width-8, 60))
+	trackingHeight := height - lipgloss.Height(logoBlock) - lipgloss.Height(stats) - 2
+	if trackingHeight < 1 {
+		trackingHeight = 1
+	}
+	tracking := m.trackingPanel(min(width-8, 64), trackingHeight)
 
 	block := lipgloss.JoinVertical(lipgloss.Center, logoBlock, "", stats, "", tracking)
 	return theme.Place(m.theme, width, height, lipgloss.Center, lipgloss.Center, block)
@@ -105,85 +121,145 @@ func min(a, b int) int {
 	return b
 }
 
-func (m Model) trackingPreview(width int) string {
+func (m Model) trackingPanel(width, height int) string {
 	if width < 24 {
 		width = 24
 	}
 
-	title := theme.Fg(m.theme, m.theme.Primary).Bold(true).Render("Tracking")
-	values := m.activity
-	if len(values) != 7 {
-		values = make([]int, 7)
+	merged := mergeAllEvents(m.allEvents)
+	now := m.clock()
+
+	statsRow := m.trackingStatsRow()
+	rows := []string{statsRow}
+	if height >= 14 {
+		rows = append(rows,
+			m.weeklyWordsChart(merged, now, width),
+			m.activityHeatmap(merged, now, width),
+		)
+	} else if height >= 12 {
+		rows = append(rows, m.weeklyWordsChart(merged, now, width))
+	} else if height >= 6 {
+		rows = append(rows, m.activityHeatmap(merged, now, width))
 	}
-	labels := []string{"M", "T", "W", "T", "F", "S", "S"}
+
+	return theme.Base(m.theme).Width(width).Render(
+		lipgloss.JoinVertical(lipgloss.Center, rows...),
+	)
+}
+
+func (m Model) trackingStatsRow() string {
+	s := m.stats
+	streakColor := m.theme.Accent
+	if s.CurrentStreak >= 7 {
+		streakColor = m.theme.Success
+	}
+
+	cell := func(label string, val string, color lipgloss.Color) string {
+		v := theme.Fg(m.theme, color).Bold(true).Render(val)
+		l := theme.Fg(m.theme, m.theme.Muted).Render(label)
+		inner := lipgloss.JoinVertical(lipgloss.Center, v, l)
+		return theme.Base(m.theme).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(color).
+			Width(12).
+			Render(inner)
+	}
+
+	sp := theme.Base(m.theme).Width(1).Render("")
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		cell("today words", fmt.Sprintf("%d", s.TodayWords), m.theme.Primary),
+		sp,
+		cell("week words", fmt.Sprintf("%d", s.WeekWords), m.theme.Accent),
+		sp,
+		cell("streak", fmt.Sprintf("%dd", s.CurrentStreak), streakColor),
+		sp,
+		cell("active days", fmt.Sprintf("%d", s.ActiveDaysWeek), m.theme.Success),
+	)
+}
+
+func (m Model) weeklyWordsChart(events []domain.TrackingEvent, now time.Time, width int) string {
+	if width < 24 {
+		width = 24
+	}
+	weekDays := tracker.WeeklyWordsByDay(events, now)
+	labels := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 	maxValue := 1
-	for _, v := range values {
+	for _, v := range weekDays {
 		if v > maxValue {
 			maxValue = v
 		}
 	}
 
-	rows := make([]string, 0, len(values))
-	for i, v := range values {
-		barLen := 0
+	barWidth := (width - 20) / 7
+	if barWidth < 2 {
+		barWidth = 2
+	}
+
+	caption := theme.Fg(m.theme, m.theme.Subtle).Render("words added · this week")
+	rows := make([]string, 0, 7)
+	for i, v := range weekDays {
+		filled := 0
 		if v > 0 {
-			barLen = max(1, v*12/maxValue)
+			filled = max(1, v*barWidth/maxValue)
 		}
-		bar := theme.Fg(m.theme, m.theme.Accent).Render(strings.Repeat("━", barLen))
-		label := theme.Fg(m.theme, m.theme.Subtle).Render(labels[i])
-		value := theme.Fg(m.theme, m.theme.Muted).Render(fmt.Sprintf("%2d", v))
-		rows = append(rows, label+"  "+bar+" "+value)
+		bar := theme.Fg(m.theme, m.theme.Accent).Render(strings.Repeat("█", filled))
+		empty := theme.Fg(m.theme, m.theme.Muted).Render(strings.Repeat("░", barWidth-filled))
+		label := theme.Fg(m.theme, m.theme.Subtle).Render(fmt.Sprintf("%-3s", labels[i]))
+		value := theme.Fg(m.theme, m.theme.Primary).Render(fmt.Sprintf("%4d", v))
+		rows = append(rows, label+"  "+bar+empty+"  "+value)
 	}
 
 	chart := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return theme.Base(m.theme).Width(width).Render(
-		lipgloss.JoinVertical(lipgloss.Center, title, chart),
+		lipgloss.JoinVertical(lipgloss.Left, caption, chart),
 	)
 }
 
-func weeklySparkActivity(items []domain.Spark, now time.Time) []int {
-	counts := make([]int, 7)
-	start := startOfWeek(now)
-	end := start.AddDate(0, 0, 7)
+func (m Model) activityHeatmap(events []domain.TrackingEvent, now time.Time, width int) string {
+	activity := tracker.Last30DaysActivity(events, now)
+	title := theme.Fg(m.theme, m.theme.Subtle).Render("activity · last 30 days")
 
-	for _, sp := range items {
-		addActivity(counts, start, end, sp.CreatedAt)
-		if !sameDay(sp.UpdatedAt, sp.CreatedAt) {
-			addActivity(counts, start, end, sp.UpdatedAt)
+	cells := make([]string, 0, len(activity))
+	for i, active := range activity {
+		if i > 0 && i%5 == 0 {
+			cells = append(cells, " ")
+		}
+		if active {
+			cells = append(cells, theme.Fg(m.theme, m.theme.Success).Render("■"))
+		} else {
+			cells = append(cells, theme.Fg(m.theme, m.theme.Muted).Render("·"))
 		}
 	}
-	return counts
+
+	row := strings.Join(cells, "")
+	return theme.Base(m.theme).Width(width).Render(
+		lipgloss.JoinVertical(lipgloss.Left, title, row),
+	)
 }
 
-func addActivity(counts []int, start, end time.Time, ts time.Time) {
-	if ts.IsZero() {
-		return
+func (m Model) clock() time.Time {
+	if m.now == nil {
+		return time.Now()
 	}
-	ts = ts.In(start.Location())
-	if ts.Before(start) || !ts.Before(end) {
-		return
-	}
-	idx := int(ts.Sub(start).Hours() / 24)
-	if idx >= 0 && idx < len(counts) {
-		counts[idx]++
-	}
+	return m.now()
 }
 
-func startOfWeek(t time.Time) time.Time {
-	t = t.Local()
-	year, month, day := t.Date()
-	start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-	offset := (int(start.Weekday()) + 6) % 7
-	return start.AddDate(0, 0, -offset)
+func mergeAllEvents(all map[string][]domain.TrackingEvent) []domain.TrackingEvent {
+	total := 0
+	for _, evs := range all {
+		total += len(evs)
+	}
+	merged := make([]domain.TrackingEvent, 0, total)
+	for _, evs := range all {
+		merged = append(merged, evs...)
+	}
+	return merged
 }
 
-func sameDay(a, b time.Time) bool {
-	if a.IsZero() || b.IsZero() {
-		return false
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-	a = a.Local()
-	b = b.Local()
-	ay, am, ad := a.Date()
-	by, bm, bd := b.Date()
-	return ay == by && am == bm && ad == bd
+	return b
 }
+

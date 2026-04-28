@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	rowTheme = 0
-	rowWords = 1
-	numRows  = 2
+	rowTheme  = 0
+	rowWords  = 1
+	rowMouse  = 2
+	numRows   = 3
 )
 
 type Model struct {
@@ -53,6 +54,22 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+	}
+	return m, nil
+}
+
+func (m *Model) handleMouse(msg tea.MouseMsg) (screens.Screen, tea.Cmd) {
+	switch msg.Type {
+	case tea.MouseWheelDown:
+		if m.cursor < numRows-1 {
+			m.cursor++
+		}
+	case tea.MouseWheelUp:
+		if m.cursor > 0 {
+			m.cursor--
+		}
 	}
 	return m, nil
 }
@@ -80,6 +97,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 				m.config.WordsThreshold--
 				return m, m.saveCmd()
 			}
+		case rowMouse:
+			m.config.MouseEnabled = !m.config.MouseEnabled
+			return m, tea.Batch(m.saveCmd(), mouseCmd(m.config.MouseEnabled))
 		}
 	case "right", "l":
 		switch m.cursor {
@@ -91,6 +111,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		case rowWords:
 			m.config.WordsThreshold++
 			return m, m.saveCmd()
+		case rowMouse:
+			m.config.MouseEnabled = !m.config.MouseEnabled
+			return m, tea.Batch(m.saveCmd(), mouseCmd(m.config.MouseEnabled))
 		}
 	}
 	return m, nil
@@ -114,6 +137,10 @@ func themeCmd(name string) tea.Cmd {
 	return func() tea.Msg { return msgs.ThemeChangedMsg{ThemeName: name} }
 }
 
+func mouseCmd(enabled bool) tea.Cmd {
+	return func() tea.Msg { return msgs.MouseToggledMsg{Enabled: enabled} }
+}
+
 func (m *Model) View(width, height int) string {
 	if width < 1 {
 		width = 1
@@ -131,6 +158,10 @@ func (m *Model) View(width, height int) string {
 	}
 	themeVal := themeNames[m.themeIdx]
 	wordsVal := fmt.Sprintf("%d words", m.config.WordsThreshold)
+	mouseVal := "on"
+	if !m.config.MouseEnabled {
+		mouseVal = "off"
+	}
 
 	root := m.ws.Root
 	if root == "" {
@@ -145,6 +176,7 @@ func (m *Model) View(width, height int) string {
 		"",
 		m.renderRow(rowTheme, "theme", themeVal),
 		m.renderRow(rowWords, "words threshold", wordsVal),
+		m.renderRow(rowMouse, "mouse support", mouseVal),
 		"",
 		wsLine,
 		"",

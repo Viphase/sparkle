@@ -44,6 +44,7 @@ type Project struct {
 	GitHubURL      string
 	TargetAudience string
 	Tags           []string
+	Body           string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

@@ -1,10 +1,16 @@
-# Sparkle Tracking Design
+# Sparkle Dashboard Tracking Design
 
 ## Goal
 
 Track user consistency and momentum without requiring constant manual input.
 
 The user should not need to click "save progress" for normal tracking.
+
+## UI Ownership
+
+Tracking lives inside the Dashboard. Do not add a standalone Tracker tab, route,
+or screen. Project views may link to or filter Dashboard tracking, but all
+tracking charts and summaries are Dashboard content.
 
 ## What to Track
 
@@ -72,12 +78,12 @@ On startup:
 During app use:
 - debounce scans (≥ 2s of idle)
 - never scan inside `Update`
-- write tracker updates through `tea.Cmd`
+- write tracking updates through `tea.Cmd`
 - surface errors via the unified `ErrorMsg` envelope
 
-## Charts
+## Dashboard Charts
 
-Show:
+Show on the Dashboard:
 - daily consistency
 - weekly activity
 - word count trend

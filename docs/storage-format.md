@@ -30,10 +30,10 @@ workspace-root/
     sparkle/
       project.md
       notes.md
-      tracker.md     // human-readable summary, regenerated from events
+      tracker.md     // optional dashboard summary export, regenerated from events
 ```
 
-One Markdown file holds project content (`project.md`); `notes.md` is freeform; `tracker.md` is auto-managed. Sections like architecture, audience, and the GitHub link live as fields or H1 sections inside `project.md` — not as separate files.
+One Markdown file holds project content (`project.md`); `notes.md` is freeform; `tracker.md` is optional, auto-managed derived output for browsing outside the TUI. Sections like architecture, audience, and the GitHub link live as fields or H1 sections inside `project.md` — not as separate files.
 
 ## Spark File
 
@@ -101,9 +101,9 @@ Statuses:
 
 `notes.md` is freeform Markdown. Frontmatter is optional and limited to `schema_version` and `project_id`.
 
-## Tracker Summary
+## Dashboard Tracking Summary Export
 
-`tracker.md` is generated from the JSONL event log. It is fully rewritten on each update — never appended to, never user-edited. Treat it as derived output that happens to live next to user files for convenient browsing.
+`tracker.md` is generated from the JSONL event log for external browsing and Dashboard-adjacent summaries. It is fully rewritten on each update — never appended to, never user-edited. Treat it as derived output; the in-app tracking UI lives on the Dashboard.
 
 Suggested sections:
 - this week's activity
@@ -142,7 +142,7 @@ The index is derived. If missing, corrupt, or its `schema_version` doesn't match
 
 ## Config
 
-`.sparkle/config.toml` holds user preferences (theme, keybinding overrides, AI provider settings, tracker thresholds). TOML, not Markdown — there is no body content, only fields.
+`.sparkle/config.toml` holds user preferences (theme, keybinding overrides, AI provider settings, tracking thresholds). TOML, not Markdown — there is no body content, only fields.
 
 ## Markdown Write Rules
 

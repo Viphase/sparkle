@@ -16,7 +16,7 @@ Add tests for:
 - Spark promotion to project
 - Project field updates
 - Workspace indexing
-- Tracker stat calculations
+- Dashboard tracking stat calculations
 - Theme loading
 - Route/navigation state transitions where practical
 
@@ -42,9 +42,9 @@ Test:
 - handle invalid Markdown gracefully
 - conflict detection when on-disk `updated_at` is newer than the loaded copy
 
-## Tracker Tests
+## Dashboard Tracking Tests
 
-Pure calculations (`internal/tracker/stats.go`):
+Pure calculations supporting the Dashboard tracking panel (`internal/tracker/stats.go`):
 - word counts
 - daily totals
 - weekly totals
@@ -56,6 +56,10 @@ Scanner (`internal/tracker/scanner.go`, integration via temp dirs):
 - meaningful-event threshold suppresses small deltas
 - JSONL append survives interleaved scans
 - partial event-log rebuild from mtimes when the JSONL is deleted
+
+Dashboard screen:
+- consumes tracking-loaded messages
+- renders tracking stats/charts without relying on a separate Tracker route
 
 ## TUI Tests
 

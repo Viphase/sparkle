@@ -44,6 +44,10 @@ func (f *fakeLoader) ProjectPath(id string) string {
 	return "/tmp/" + id + "/project.md"
 }
 
+func (f *fakeLoader) NotesPath(id string) string {
+	return "/tmp/" + id + "/notes.md"
+}
+
 func newModel(loader Loader) *Model {
 	return New(theme.PastelDark(), loader).(*Model)
 }
@@ -245,7 +249,17 @@ func TestSaveProjectCmdReturnsErrorWhenNoLoader(t *testing.T) {
 func TestOpenInEditorCmdReturnsErrorWhenNoLoader(t *testing.T) {
 	m := newModel(nil)
 	p := domain.Project{ID: "p1", Title: "Test", Status: domain.ProjectStatusDraft}
-	cmd := m.openInEditorCmd(p)
+	cmd := m.openProjectInEditorCmd(p)
+	result := cmd()
+	if _, ok := result.(msgs.ErrorMsg); !ok {
+		t.Errorf("expected ErrorMsg with nil loader, got %T", result)
+	}
+}
+
+func TestOpenNotesInEditorCmdReturnsErrorWhenNoLoader(t *testing.T) {
+	m := newModel(nil)
+	p := domain.Project{ID: "p1", Title: "Test", Status: domain.ProjectStatusDraft}
+	cmd := m.openNotesInEditorCmd(p)
 	result := cmd()
 	if _, ok := result.(msgs.ErrorMsg); !ok {
 		t.Errorf("expected ErrorMsg with nil loader, got %T", result)
@@ -267,5 +281,12 @@ func TestParseTagsRoundtrip(t *testing.T) {
 		if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", tc.want) {
 			t.Errorf("parseTags(%q) = %v, want %v", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestSectionPreviewExtractsProjectBodySection(t *testing.T) {
+	body := "# Description\n\nShort summary.\n\n# Architecture\n\nClean layers.\n\n# Roadmap\n\nM1 done."
+	if got := sectionPreview(body, "Architecture"); got != "Clean layers." {
+		t.Fatalf("sectionPreview()=%q, want %q", got, "Clean layers.")
 	}
 }

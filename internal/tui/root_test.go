@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/viphase/sparkle/internal/config"
+	"github.com/viphase/sparkle/internal/domain"
 	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/workspace"
 )
@@ -104,6 +105,11 @@ func TestRootGlobalKeysSuppressedInSparkSearch(t *testing.T) {
 	r := newTestRoot()
 	jumped, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	r = jumped.(Root)
+	// Populate sparks so '/' is not a no-op.
+	populated, _ := r.Update(msgs.SparksLoadedMsg{Items: []domain.Spark{
+		{ID: "s1", Title: "Idea", Status: "new"},
+	}})
+	r = populated.(Root)
 	opened, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	r = opened.(Root)
 

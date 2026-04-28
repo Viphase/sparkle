@@ -2,7 +2,10 @@
 
 ## Core Principle
 
-Separate domain, storage, TUI, tracking, and AI.
+Separate domain, storage, TUI, tracking services, and AI.
+
+Tracking has no standalone TUI route. All in-app tracking summaries and charts
+render inside the Dashboard.
 
 The domain layer must not import Bubble Tea, Lip Gloss, or filesystem implementation details.
 
@@ -156,8 +159,9 @@ Routes:
 - ai
 - settings
 
-Tracking appears as a dashboard panel in the primary navigation. The pure
-tracking package remains separate from Bubble Tea.
+Tracking does not appear as its own primary-navigation route. The Dashboard owns
+the tracking panel, while the pure tracking package remains separate from Bubble
+Tea.
 
 Workspace selection is resolved before Bubble Tea starts through `$SPARKLE_HOME`
 or `--workspace <path>`. Settings displays the active workspace and loaded
