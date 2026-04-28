@@ -34,6 +34,8 @@ Personal-first. Team support may come later, but v1 is for one user managing few
 
 ## Primary Resources
 
+Read FIXES.md to know the current issues
+
 Read these files when relevant:
 
 - Product spec: `docs/product-spec.md`

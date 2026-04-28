@@ -2,7 +2,7 @@
 
 ## UX Goal
 
-Sparkle should feel polished, playful, and fast.
+Sparkle should feel polished, sharp, and fast.
 
 It is not just a CRUD terminal app. UX is a major goal.
 
@@ -18,8 +18,9 @@ Keyboard:
 - `/`: search
 - `n`: new spark/project/task
 - `e`: edit selected item
-- `a`: open AI guide
-- `t`: tracker
+- `a`: archive/unarchive selected spark inside Sparks
+- `c`: clear active search
+- `?`: show extra footer keys
 - `?`: help
 - `q`: quit
 
@@ -41,7 +42,7 @@ Use:
 - rounded cards
 - generous spacing
 - pleasant borders
-- pastel accents
+- cool blue/cyan accents
 - clear focus states
 - readable typography through terminal styling
 
@@ -53,9 +54,9 @@ Light background, pastel accents, not pure grayscale.
 
 ### pastel-dark
 
-Dark background, muted pastel accents, not pure grayscale.
+Dark background, muted blue/cyan accents, not pure grayscale.
 
-### chaos-color
+### nova
 
 Playful, high-distinction, colorful, still readable.
 
@@ -67,6 +68,7 @@ Suggested sections:
 - top status bar
 - stats cards
 - weekly activity chart
+- tracking summary
 - active project cards
 - recent sparks
 - shortcut footer
@@ -89,8 +91,7 @@ Actions:
 - edit
 - archive
 - promote
-- search
-- filter
+- search by title, description, status, and tags
 
 ### Project Workspace
 
@@ -104,10 +105,9 @@ Project detail can show tabs:
 - audience
 - roadmap
 - notes
-- tracker
 - AI
 
-### Tracker
+### Dashboard Tracking
 
 Prioritize charts:
 - daily consistency

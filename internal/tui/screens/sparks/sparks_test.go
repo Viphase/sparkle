@@ -280,6 +280,8 @@ func TestArchiveTogglesStatus(t *testing.T) {
 	// Re-feed the new state, then 'a' again to unarchive.
 	next, _ = m.Update(loaded)
 	m = next.(*Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = next.(*Model)
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = next.(*Model)
 	if cmd == nil {
@@ -288,6 +290,59 @@ func TestArchiveTogglesStatus(t *testing.T) {
 	loaded = cmd().(msgs.SparksLoadedMsg)
 	if loaded.Items[0].Status != domain.SparkStatusNew {
 		t.Errorf("expected unarchived (new), got %q", loaded.Items[0].Status)
+	}
+}
+
+func TestArchivedSparksHiddenUntilToggled(t *testing.T) {
+	m := newModel(nil)
+	next, _ := m.Update(msgs.SparksLoadedMsg{Items: []domain.Spark{
+		{ID: "active", Title: "Active", Status: domain.SparkStatusNew},
+		{ID: "archived", Title: "Archived", Status: domain.SparkStatusArchived},
+	}})
+	m = next.(*Model)
+
+	out := stripANSI(m.View(80, 20))
+	if strings.Contains(out, "Archived") {
+		t.Fatalf("archived spark should be hidden by default; got: %s", out)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = next.(*Model)
+	out = stripANSI(m.View(80, 20))
+	if !strings.Contains(out, "Archived") {
+		t.Fatalf("archived spark should appear after h; got: %s", out)
+	}
+	if !strings.Contains(out, "Active") {
+		t.Fatalf("active spark should still be visible after h; got: %s", out)
+	}
+	if strings.Index(out, "Active") > strings.Index(out, "Archived") {
+		t.Fatalf("archived spark should render below active spark; got: %s", out)
+	}
+	if m.cursor != len(m.visibleItems())-1 {
+		t.Fatalf("showing archived should move cursor to bottom; cursor=%d visible=%d", m.cursor, len(m.visibleItems()))
+	}
+}
+
+func TestShowArchivedScrollsToBottom(t *testing.T) {
+	m := newModel(nil)
+	items := []domain.Spark{
+		{ID: "a", Title: "A", Status: domain.SparkStatusNew},
+		{ID: "b", Title: "B", Status: domain.SparkStatusNew},
+		{ID: "c", Title: "C", Status: domain.SparkStatusNew},
+		{ID: "z", Title: "Z", Status: domain.SparkStatusArchived},
+	}
+	next, _ := m.Update(msgs.SparksLoadedMsg{Items: items})
+	m = next.(*Model)
+	m.listHeight = 2
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = next.(*Model)
+
+	if m.cursor != 3 {
+		t.Fatalf("cursor=%d, want last archived index 3", m.cursor)
+	}
+	if m.offset != 2 {
+		t.Fatalf("offset=%d, want bottom viewport offset 2", m.offset)
 	}
 }
 
@@ -317,6 +372,73 @@ func TestEmptyStateAfterLoadWithNoItems(t *testing.T) {
 	out := got.View(60, 20)
 	if !strings.Contains(stripANSI(out), "No sparks yet") {
 		t.Errorf("expected empty-state copy; got: %s", stripANSI(out))
+	}
+}
+
+func TestSearchFiltersByTitleDescriptionAndTags(t *testing.T) {
+	m := newModel(nil)
+	next, _ := m.Update(msgs.SparksLoadedMsg{Items: []domain.Spark{
+		{ID: "tui", Title: "Solid TUI", Status: domain.SparkStatusNew, Tags: []string{"polish"}},
+		{ID: "dash", Title: "Weekly momentum", Description: "Dashboard graph", Status: domain.SparkStatusNew},
+		{ID: "ai", Title: "Guide prompt", Status: domain.SparkStatusNew, Tags: []string{"assistant"}},
+	}})
+	m = next.(*Model)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = next.(*Model)
+	for _, r := range "graph" {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(*Model)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(*Model)
+
+	visible := m.visibleItems()
+	if len(visible) != 1 || visible[0].ID != "dash" {
+		t.Fatalf("visible=%v, want only dashboard match", visible)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = next.(*Model)
+	m.searchInput.SetValue("polish")
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(*Model)
+	visible = m.visibleItems()
+	if len(visible) != 1 || visible[0].ID != "tui" {
+		t.Fatalf("visible=%v, want only tag match", visible)
+	}
+}
+
+func TestClearResetsSearch(t *testing.T) {
+	m := newModel(nil)
+	next, _ := m.Update(msgs.SparksLoadedMsg{Items: []domain.Spark{
+		{ID: "new", Title: "New", Status: domain.SparkStatusNew},
+		{ID: "questioning", Title: "Questioning", Status: domain.SparkStatusQuestioning},
+		{ID: "promoted", Title: "Promoted", Status: domain.SparkStatusPromoted},
+	}})
+	m = next.(*Model)
+
+	m.query = "questioning"
+	if len(m.visibleItems()) != 1 {
+		t.Fatalf("visible count=%d, want one search match", len(m.visibleItems()))
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = next.(*Model)
+	if m.query != "" {
+		t.Fatalf("clear left query=%q", m.query)
+	}
+	if len(m.visibleItems()) != 3 {
+		t.Fatalf("visible count=%d, want all", len(m.visibleItems()))
+	}
+}
+
+func TestSearchModeCountsAsTextInput(t *testing.T) {
+	m := newModel(nil)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = next.(*Model)
+	if !m.InForm() {
+		t.Fatal("search mode should yield global keys to the screen")
 	}
 }
 

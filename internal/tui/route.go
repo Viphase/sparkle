@@ -6,17 +6,15 @@ const (
 	RouteDashboard Route = iota
 	RouteSparks
 	RouteProjects
-	RouteTracker
 	RouteAI
 	RouteSettings
 )
 
 var orderedRoutes = []Route{
-	RouteDashboard,
-	RouteSparks,
-	RouteProjects,
-	RouteTracker,
 	RouteAI,
+	RouteSparks,
+	RouteDashboard,
+	RouteProjects,
 	RouteSettings,
 }
 
@@ -52,8 +50,6 @@ func (r Route) String() string {
 		return "Sparks"
 	case RouteProjects:
 		return "Projects"
-	case RouteTracker:
-		return "Tracker"
 	case RouteAI:
 		return "AI"
 	case RouteSettings:

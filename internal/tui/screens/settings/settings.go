@@ -1,74 +1,175 @@
 package settings
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/viphase/sparkle/internal/config"
+	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/tui/screens"
 	"github.com/viphase/sparkle/internal/tui/theme"
 	"github.com/viphase/sparkle/internal/workspace"
 )
 
+const (
+	rowTheme = 0
+	rowWords = 1
+	numRows  = 2
+)
+
 type Model struct {
-	theme  theme.Theme
-	config config.Config
-	ws     workspace.Workspace
+	theme    theme.Theme
+	config   config.Config
+	ws       workspace.Workspace
+	cursor   int
+	themeIdx int
 }
 
-func New(t theme.Theme, ws workspace.Workspace) screens.Screen {
-	return Model{theme: t, ws: ws, config: config.Defaults()}
+func New(t theme.Theme, ws workspace.Workspace, cfg config.Config) screens.Screen {
+	idx := 0
+	for i, p := range theme.AllPalettes() {
+		if p.Name == cfg.Theme {
+			idx = i
+			break
+		}
+	}
+	return &Model{
+		theme:    t,
+		config:   cfg,
+		ws:       ws,
+		themeIdx: idx,
+	}
 }
 
-func (m Model) Init() tea.Cmd                             { return nil }
-func (m Model) Update(_ tea.Msg) (screens.Screen, tea.Cmd) { return m, nil }
-func (m Model) Title() string                             { return "Settings" }
+func (m *Model) Init() tea.Cmd { return nil }
+func (m *Model) Title() string { return "Settings" }
 
-func (m Model) View(width, height int) string {
-	header := theme.ApplyGrad("✦ Settings", m.theme.GradientFrom, m.theme.GradientTo, true)
+func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	switch msg := msg.(type) {
+	case msgs.ThemeChangedMsg:
+		m.theme = theme.ByName(msg.ThemeName)
+		return m, nil
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+func (m *Model) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
+	palettes := theme.AllPalettes()
+	switch msg.String() {
+	case "j", "down":
+		if m.cursor < numRows-1 {
+			m.cursor++
+		}
+	case "k", "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "left", "h":
+		switch m.cursor {
+		case rowTheme:
+			m.themeIdx = (m.themeIdx - 1 + len(palettes)) % len(palettes)
+			newTheme := palettes[m.themeIdx]
+			m.config.Theme = newTheme.Name
+			return m, tea.Batch(m.saveCmd(), themeCmd(newTheme.Name))
+		case rowWords:
+			if m.config.WordsThreshold > 1 {
+				m.config.WordsThreshold--
+				return m, m.saveCmd()
+			}
+		}
+	case "right", "l":
+		switch m.cursor {
+		case rowTheme:
+			m.themeIdx = (m.themeIdx + 1) % len(palettes)
+			newTheme := palettes[m.themeIdx]
+			m.config.Theme = newTheme.Name
+			return m, tea.Batch(m.saveCmd(), themeCmd(newTheme.Name))
+		case rowWords:
+			m.config.WordsThreshold++
+			return m, m.saveCmd()
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) saveCmd() tea.Cmd {
+	root := m.ws.Root
+	cfg := m.config
+	return func() tea.Msg {
+		if root == "" {
+			return msgs.StatusMsg{Text: "no workspace — config not saved"}
+		}
+		if err := config.Save(root, cfg); err != nil {
+			return msgs.ErrorMsg{Source: "settings", Err: err}
+		}
+		return msgs.StatusMsg{Text: "saved · .sparkle/config.toml"}
+	}
+}
+
+func themeCmd(name string) tea.Cmd {
+	return func() tea.Msg { return msgs.ThemeChangedMsg{ThemeName: name} }
+}
+
+func (m *Model) View(width, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	header := theme.ApplyGradOn("Settings", m.theme.GradientFrom, m.theme.GradientTo, m.theme.Background, true)
+
+	palettes := theme.AllPalettes()
+	themeNames := make([]string, len(palettes))
+	for i, p := range palettes {
+		themeNames[i] = p.Name
+	}
+	themeVal := themeNames[m.themeIdx]
+	wordsVal := fmt.Sprintf("%d words", m.config.WordsThreshold)
 
 	root := m.ws.Root
 	if root == "" {
-		root = "(none selected)"
+		root = "(none)"
 	}
+	wsLine := theme.Fg(m.theme, m.theme.Subtle).Render("workspace  " + root)
+	hint := theme.Fg(m.theme, m.theme.Subtle).Italic(true).
+		Render("↑↓ / jk  navigate   ←→  change   saves automatically")
 
-	rowStyle := lipgloss.NewStyle().Foreground(m.theme.Foreground)
-	keyStyle := lipgloss.NewStyle().Foreground(m.theme.Muted).Width(14)
-
-	rows := []string{
-		rowStyle.Render(keyStyle.Render("theme") + m.theme.Name),
-		rowStyle.Render(keyStyle.Render("workspace") + root),
-		rowStyle.Render(keyStyle.Render("words threshold") + intStr(m.config.WordsThreshold)),
-	}
-
-	hint := lipgloss.NewStyle().Foreground(m.theme.Subtle).Italic(true).
-		Render("Coming next: theme picker (pastel-dark · pastel-light · nova), workspace switching, TOML config.")
-
-	body := lipgloss.JoinVertical(lipgloss.Center,
+	body := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		"",
-		lipgloss.JoinVertical(lipgloss.Left, rows...),
+		m.renderRow(rowTheme, "theme", themeVal),
+		m.renderRow(rowWords, "words threshold", wordsVal),
+		"",
+		wsLine,
 		"",
 		hint,
 	)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, body)
+
+	return theme.Place(m.theme, width, height, lipgloss.Center, lipgloss.Center, body)
 }
 
-func intStr(n int) string {
-	if n == 0 {
-		return "0"
+func (m *Model) renderRow(row int, key, value string) string {
+	const keyWidth = 18
+	selected := m.cursor == row
+
+	keyStyle := theme.Fg(m.theme, m.theme.Muted).Width(keyWidth)
+	valStyle := theme.Fg(m.theme, m.theme.Foreground)
+	arrowStyle := theme.Fg(m.theme, m.theme.Subtle)
+	cur := "  "
+
+	if selected {
+		cur = theme.Fg(m.theme, m.theme.Accent).Bold(true).Render("▌ ")
+		keyStyle = keyStyle.Foreground(m.theme.Primary)
+		valStyle = valStyle.Foreground(m.theme.Primary).Bold(true)
+		arrowStyle = theme.Fg(m.theme, m.theme.Primary)
 	}
-	digits := []byte{}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if neg {
-		digits = append([]byte{'-'}, digits...)
-	}
-	return string(digits)
+
+	arrows := arrowStyle.Render(" ← ") + valStyle.Render(value) + arrowStyle.Render(" →")
+	return cur + keyStyle.Render(key) + arrows
 }

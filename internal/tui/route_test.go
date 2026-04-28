@@ -3,8 +3,8 @@ package tui
 import "testing"
 
 func TestRouteNextWraps(t *testing.T) {
-	if got := RouteDashboard.Next(); got != RouteSparks {
-		t.Errorf("Dashboard.Next() = %v, want Sparks", got)
+	if got := RouteDashboard.Next(); got != RouteProjects {
+		t.Errorf("Dashboard.Next() = %v, want Projects", got)
 	}
 	last := orderedRoutes[len(orderedRoutes)-1]
 	if got := last.Next(); got != orderedRoutes[0] {
@@ -13,8 +13,8 @@ func TestRouteNextWraps(t *testing.T) {
 }
 
 func TestRoutePrevWraps(t *testing.T) {
-	if got := RouteSparks.Prev(); got != RouteDashboard {
-		t.Errorf("Sparks.Prev() = %v, want Dashboard", got)
+	if got := RouteSparks.Prev(); got != RouteAI {
+		t.Errorf("Sparks.Prev() = %v, want AI", got)
 	}
 	first := orderedRoutes[0]
 	last := orderedRoutes[len(orderedRoutes)-1]
@@ -28,7 +28,6 @@ func TestRouteString(t *testing.T) {
 		RouteDashboard: "Dashboard",
 		RouteSparks:    "Sparks",
 		RouteProjects:  "Projects",
-		RouteTracker:   "Tracker",
 		RouteAI:        "AI",
 		RouteSettings:  "Settings",
 	}
@@ -39,25 +38,39 @@ func TestRouteString(t *testing.T) {
 	}
 }
 
+func TestRouteOrderKeepsDashboardCenteredInPrimaryNav(t *testing.T) {
+	want := []Route{RouteAI, RouteSparks, RouteDashboard, RouteProjects, RouteSettings}
+	if len(orderedRoutes) != len(want) {
+		t.Fatalf("len(orderedRoutes)=%d, want %d", len(orderedRoutes), len(want))
+	}
+	for i := range want {
+		if orderedRoutes[i] != want[i] {
+			t.Fatalf("orderedRoutes[%d]=%v, want %v", i, orderedRoutes[i], want[i])
+		}
+	}
+}
+
 func TestAllRoutesIsCopy(t *testing.T) {
 	got := AllRoutes()
 	got[0] = RouteSettings
-	if orderedRoutes[0] != RouteDashboard {
+	if orderedRoutes[0] != RouteAI {
 		t.Error("AllRoutes() must return a copy; mutation leaked back to package state")
 	}
 }
 
 func TestNumberRoute(t *testing.T) {
 	cases := []struct {
-		in    string
-		want  Route
-		ok    bool
+		in   string
+		want Route
+		ok   bool
 	}{
-		{"1", RouteDashboard, true},
+		{"1", RouteAI, true},
 		{"2", RouteSparks, true},
-		{"6", RouteSettings, true},
+		{"3", RouteDashboard, true},
+		{"4", RouteProjects, true},
+		{"5", RouteSettings, true},
+		{"6", 0, false},
 		{"0", 0, false},
-		{"7", 0, false},
 		{"a", 0, false},
 		{"", 0, false},
 		{"12", 0, false},

@@ -37,9 +37,9 @@ func Render(t theme.Theme, width int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, block, sub)
 }
 
-// Compact returns a single-line gradient "✦ SPARKLE" wordmark for narrow views.
+// Compact returns a single-line gradient "ꕤ SPARKLE" wordmark for narrow views.
 func Compact(t theme.Theme) string {
-	glyph := theme.Fg(t, t.Primary).Render("✦")
+	glyph := theme.Fg(t, t.Primary).Render("ꕤ")
 	title := theme.ApplyGradOn("SPARKLE", t.GradientFrom, t.GradientTo, t.Background, true)
 	return lipgloss.JoinHorizontal(lipgloss.Left, glyph, " ", title)
 }

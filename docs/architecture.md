@@ -34,7 +34,6 @@ internal/
       sparks/
       projects/
       projectdetail/
-      tracker/
       ai/
       settings/
     components/
@@ -58,7 +57,7 @@ internal/
     prompt_builder.go
 
   config/
-    config.go
+    config.go            // .sparkle/config.toml defaults, load, first-run ensure
 ```
 
 ## Layers
@@ -154,13 +153,15 @@ Routes:
 - dashboard
 - sparks
 - projects
-- project-detail
-- tracker
 - ai
 - settings
-- help
 
-Workspace switching lives in `settings`, not on the dashboard. v1 assumes one active workspace at a time.
+Tracking appears as a dashboard panel in the primary navigation. The pure
+tracking package remains separate from Bubble Tea.
+
+Workspace selection is resolved before Bubble Tea starts through `$SPARKLE_HOME`
+or `--workspace <path>`. Settings displays the active workspace and loaded
+config; richer in-app switching can land later.
 
 ## Performance
 

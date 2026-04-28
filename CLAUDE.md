@@ -31,8 +31,11 @@ Personal-first. Team support may come later, but v1 is for one user managing few
 6. Keep the app fast for fewer than 100 projects.
 7. Make the TUI polished, keyboard-friendly, and mouse-friendly.
 8. Run tests before declaring implementation complete.
+9. Use this ascii symbol as a logo: ꕤ
 
 ## Primary Resources
+
+Read FIXES.md to know the current issues
 
 Read these files when relevant:
 

@@ -2,7 +2,7 @@
 
 Local-first Go TUI for turning rough project sparks into structured, trackable workspaces.
 
-> Status: very early. Milestone 1 — local TUI foundation. See [`docs/roadmap.md`](docs/roadmap.md).
+> Status: very early. Milestone 1 is complete; Milestone 2 Sparks work is in progress. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Run
 
@@ -13,13 +13,28 @@ go mod tidy
 go run ./cmd/sparkle
 ```
 
+Use an explicit workspace:
+
+```sh
+go run ./cmd/sparkle --workspace ./scratch-workspace
+```
+
+Seed a workspace with demo sparks:
+
+```sh
+go run ./cmd/sparkle sample-data --workspace ./scratch-workspace
+```
+
 ### Keys
 
 - `tab` / `shift+tab` — cycle tabs
-- `1`–`6` — jump to a tab
+- `1`–`5` — jump to a tab
 - `n` — capture a new spark (Sparks tab)
 - `e` — edit selected spark's title
 - `a` — archive / unarchive selected spark
+- `/` — search sparks by title, description, status, or tags
+- `c` — clear active spark search
+- `?` — show extra keys in the footer
 - `j` / `k` (or arrows) — move cursor
 - `g` / `G` — jump to first / last
 - `enter` — save spark · `esc` — cancel form
@@ -33,6 +48,7 @@ $HOME/sparkle/
   projects/
   .sparkle/
     events/
+    config.toml
 ```
 
 ## What's here so far
@@ -45,19 +61,19 @@ $HOME/sparkle/
 - `internal/tui/msgs/` — shared message envelopes (`ErrorMsg`, `StatusMsg`, `SparksLoadedMsg`)
 - `internal/tui/components/{tabs,statusbar,logo}/` — shared UI widgets
 - `internal/tui/theme/` — token struct, three palettes (`pastel-dark`, `pastel-light`, `nova`), gradient helper
-- `internal/tui/screens/{dashboard,sparks,projects,tracker,ai,settings}/`
-- `internal/config/` — config struct (TOML loader still to follow)
+- `internal/tui/screens/{dashboard,sparks,projects,ai,settings}/`
+- `internal/config/` — default-preserving `.sparkle/config.toml` loader
 
 ### What works in the UI
 
-- Centered dashboard with a gradient `Sparkle` wordmark, sparkle field decoration, and live spark counts.
-- Sparks tab: list view, real disk reads, `n` opens an inline title form, `enter` writes a spark to disk and refreshes the list.
-- Themed status bar with global hint + error envelope; `tab` / `shift+tab` and `1`–`6` shortcuts on the bar.
+- Centered dashboard with a Crush-style diagonal wordmark, live spark counts, and the tracking preview.
+- Sparks tab: list view, real disk reads, `n` opens an inline title form, `enter` writes a spark to disk and refreshes the list, `/` searches.
+- Themed status bar with global hint + error envelope; `tab` / `shift+tab` and `1`–`5` shortcuts on the bar.
 - Three palettes ready to switch between (picker UI lands with the settings rewrite).
 
 ### Inspirations
 
-UI patterns (gradient wordmark, decorative field around the title, theme-as-tokens) follow [charmbracelet/crush](https://github.com/charmbracelet/crush). Sparkle replaces Crush's diagonals with sparkle glyphs and uses its own palette.
+UI patterns (diagonal wordmark, compact metadata row, theme-as-tokens) follow [charmbracelet/crush](https://github.com/charmbracelet/crush). Sparkle keeps its own blue palette and simpler Bubble Tea structure.
 
 ## Tests
 
@@ -72,9 +88,9 @@ Domain types are unit-tested. More to come as features land — see [`docs/testi
 See [`docs/roadmap.md`](docs/roadmap.md).
 
 1. Local TUI foundation — **shipped** (M1)
-2. Sparks (Markdown-backed) — **list + create + edit + archive shipped**, search next (M2)
+2. Sparks (Markdown-backed) — **list + create + edit + archive + search shipped**, promote next (M2)
 3. Projects (M3)
-4. Tracking, charts, mouse support (M4)
+4. Dashboard tracking, charts, mouse support (M4)
 5. AI-ready architecture with mock provider (M5)
 6. Real AI provider (M6)
 
@@ -84,7 +100,7 @@ See [`docs/architecture.md`](docs/architecture.md). Short version:
 
 - Domain layer never imports Bubble Tea, Lip Gloss, or filesystem packages.
 - All I/O happens inside `tea.Cmd`; nothing blocks `Update`.
-- Markdown-first storage for content; JSONL event log for tracker; TOML for config.
+- Markdown-first storage for content; JSONL event log for tracking; TOML for config.
 - Mock AI provider first; real provider lands later behind the same interface.
 
 ## Non-goals for v1
