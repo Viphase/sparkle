@@ -1,81 +1,97 @@
 package theme
 
-// PastelDark — soft purples on deep aubergine. Default theme.
+import "strings"
+
+// PastelDark — cool blue on a quiet dark base. Default theme.
 func PastelDark() Theme {
 	return Theme{
 		Name:         "pastel-dark",
-		Background:   "#1a1625",
-		Surface:      "#231a36",
-		Overlay:      "#2d2342",
-		Border:       "#3a2f50",
-		BorderFocus:  "#c4b5fd",
-		Foreground:   "#ece7f2",
-		Muted:        "#9f94b8",
-		Subtle:       "#6e6585",
-		Primary:      "#c4b5fd",
-		PrimaryGlow:  "#a78bfa",
-		Accent:       "#f9a8d4",
-		AccentGlow:   "#ec4899",
-		GradientFrom: "#a78bfa",
-		GradientTo:   "#f0abfc",
-		Success:      "#86efac",
-		Warning:      "#fcd34d",
-		Danger:       "#fca5a5",
-		Info:         "#93c5fd",
+		Background:   "#0d1524",
+		Surface:      "#121d2e",
+		Overlay:      "#19283d",
+		Border:       "#29435f",
+		BorderFocus:  "#72c7ff",
+		Foreground:   "#e6f2ff",
+		Muted:        "#9fb5cc",
+		Subtle:       "#60758d",
+		Primary:      "#72c7ff",
+		PrimaryGlow:  "#4aa8e8",
+		Accent:       "#8edfd2",
+		AccentGlow:   "#54bfb2",
+		GradientFrom: "#8edfd2",
+		GradientTo:   "#72c7ff",
+		Success:      "#8fd5a6",
+		Warning:      "#d6bf72",
+		Danger:       "#de8d8d",
+		Info:         "#72c7ff",
 	}
 }
 
-// PastelLight — warm cream surface with violet/rose accents.
+// PastelLight — warm aged-paper surface with muted teal-blue accents.
+// The background leans amber to avoid the harshness of pure white terminals.
 func PastelLight() Theme {
 	return Theme{
 		Name:         "pastel-light",
-		Background:   "#faf7ff",
-		Surface:      "#f3eefb",
-		Overlay:      "#e8e0f4",
-		Border:       "#d6cce6",
-		BorderFocus:  "#7c3aed",
-		Foreground:   "#2d2438",
-		Muted:        "#6e6585",
-		Subtle:       "#a59cba",
-		Primary:      "#7c3aed",
-		PrimaryGlow:  "#5b21b6",
-		Accent:       "#db2777",
-		AccentGlow:   "#9d174d",
-		GradientFrom: "#7c3aed",
-		GradientTo:   "#db2777",
-		Success:      "#15803d",
-		Warning:      "#b45309",
-		Danger:       "#b91c1c",
-		Info:         "#1d4ed8",
+		Background:   "#e8e0d2",
+		Surface:      "#ddd6c5",
+		Overlay:      "#d0c9b6",
+		Border:       "#b8b0a0",
+		BorderFocus:  "#4270b8",
+		Foreground:   "#1a1e2a",
+		Muted:        "#5e6a78",
+		Subtle:       "#8c9aa8",
+		Primary:      "#2e5ea8",
+		PrimaryGlow:  "#1f4d96",
+		Accent:       "#206070",
+		AccentGlow:   "#155060",
+		GradientFrom: "#206070",
+		GradientTo:   "#2e5ea8",
+		Success:      "#256638",
+		Warning:      "#7a5200",
+		Danger:       "#9a1a28",
+		Info:         "#2e5ea8",
 	}
 }
 
-// Nova — high-energy cyan-to-magenta on near-black.
+// Nova — cosmic burst: deep space purple with electric neon energy.
+// Vivid magenta/cyan/gold make it unmistakably distinct from the dark theme.
 func Nova() Theme {
 	return Theme{
 		Name:         "nova",
-		Background:   "#0a0a1f",
-		Surface:      "#13132e",
-		Overlay:      "#1a1a3e",
-		Border:       "#2a2a52",
-		BorderFocus:  "#22d3ee",
-		Foreground:   "#e0f7ff",
-		Muted:        "#8b9bc4",
-		Subtle:       "#5a6a8a",
-		Primary:      "#22d3ee",
-		PrimaryGlow:  "#06b6d4",
-		Accent:       "#f472b6",
-		AccentGlow:   "#ec4899",
-		GradientFrom: "#22d3ee",
-		GradientTo:   "#f472b6",
-		Success:      "#34d399",
-		Warning:      "#fbbf24",
-		Danger:       "#f87171",
-		Info:         "#60a5fa",
+		Background:   "#060010",
+		Surface:      "#0f0025",
+		Overlay:      "#1a003d",
+		Border:       "#4400aa",
+		BorderFocus:  "#ff00ff",
+		Foreground:   "#f5e8ff",
+		Muted:        "#cc88ff",
+		Subtle:       "#7744bb",
+		Primary:      "#ff00ff",
+		PrimaryGlow:  "#cc00cc",
+		Accent:       "#00ffcc",
+		AccentGlow:   "#00ccaa",
+		GradientFrom: "#ff00ee",
+		GradientTo:   "#00ccff",
+		Success:      "#00ff77",
+		Warning:      "#ffaa00",
+		Danger:       "#ff1133",
+		Info:         "#00eeff",
 	}
 }
 
 // AllPalettes returns the built-in themes in display order.
 func AllPalettes() []Theme {
 	return []Theme{PastelDark(), PastelLight(), Nova()}
+}
+
+// ByName returns a built-in theme by config name. Unknown or empty names fall
+// back to the default so a typo in config does not make the app unusable.
+func ByName(name string) Theme {
+	name = strings.TrimSpace(strings.ToLower(name))
+	for _, t := range AllPalettes() {
+		if t.Name == name {
+			return t
+		}
+	}
+	return PastelDark()
 }

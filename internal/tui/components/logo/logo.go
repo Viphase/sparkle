@@ -1,5 +1,5 @@
-// Package logo renders the Sparkle wordmark with a sparkle field, inspired by
-// charmbracelet/crush's diagonal field + gradient title pattern.
+// Package logo renders the Sparkle wordmark in ANSI Shadow block style,
+// inspired by charmbracelet/crush's bold title treatment.
 package logo
 
 import (
@@ -10,54 +10,36 @@ import (
 	"github.com/viphase/sparkle/internal/tui/theme"
 )
 
-// Glyphs is the four-step pattern that makes up the sparkle field.
-var glyphs = []string{"✦", "·", "✧", "·"}
+// sparkleRows is SPARKLE in ANSI Shadow block font (56 terminal cells wide).
+var sparkleRows = []string{
+	"███████╗██████╗  █████╗ ██████╗ ██╗  ██╗██╗     ███████╗",
+	"██╔════╝██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝██║     ██╔════╝",
+	"███████╗██████╔╝███████║██████╔╝█████╔╝ ██║     █████╗  ",
+	"╚════██║██╔═══╝ ██╔══██║██╔══██╗██╔═██╗ ██║     ██╔══╝  ",
+	"███████║██║     ██║  ██║██║  ██╗██║  ██╗███████╗███████╗",
+	"╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝",
+}
 
-// Render produces a centered title block: a sparkle field, the gradient
-// "Sparkle" wordmark, a tagline, then another sparkle field. width is used to
-// size the field; it does not pad the result.
+const blockWidth = 56
+
+// Render produces the ANSI Shadow block wordmark with a per-row gradient.
+// Falls back to Compact for widths narrower than the art.
 func Render(t theme.Theme, width int) string {
-	if width < 12 {
-		width = 12
+	if width < blockWidth {
+		return Compact(t)
 	}
-
-	field := buildField(t, width)
-	title := theme.ApplyGrad("✦  S P A R K L E  ✦", t.GradientFrom, t.GradientTo, true)
-	tagline := lipgloss.NewStyle().
-		Foreground(t.Muted).
-		Italic(true).
-		Render("turn rough sparks into structured projects")
-
-	return lipgloss.JoinVertical(lipgloss.Center,
-		field,
-		"",
-		title,
-		tagline,
-		"",
-		field,
-	)
+	rows := make([]string, len(sparkleRows))
+	for i, row := range sparkleRows {
+		rows[i] = theme.ApplyGradOn(row, t.GradientFrom, t.GradientTo, t.Background, true)
+	}
+	block := strings.Join(rows, "\n")
+	sub := theme.Fg(t, t.Muted).Render("by viphase")
+	return lipgloss.JoinVertical(lipgloss.Left, block, sub)
 }
 
-// Compact returns a single-line version suitable for tight headers.
+// Compact returns a single-line gradient "✦ SPARKLE" wordmark for narrow views.
 func Compact(t theme.Theme) string {
-	return theme.ApplyGrad("✦ Sparkle", t.GradientFrom, t.GradientTo, true)
-}
-
-func buildField(t theme.Theme, width int) string {
-	from, to := t.GradientFrom, t.GradientTo
-
-	var sb strings.Builder
-	cellWidth := 2 // glyph + space
-	cells := width / cellWidth
-	if cells < 4 {
-		cells = 4
-	}
-	for i := 0; i < cells; i++ {
-		sb.WriteString(glyphs[i%len(glyphs)])
-		if i < cells-1 {
-			sb.WriteByte(' ')
-		}
-	}
-	// Use a soft gradient on the field too so the whole logo glows.
-	return theme.ApplyGrad(sb.String(), from, to, false)
+	glyph := theme.Fg(t, t.Primary).Render("✦")
+	title := theme.ApplyGradOn("SPARKLE", t.GradientFrom, t.GradientTo, t.Background, true)
+	return lipgloss.JoinHorizontal(lipgloss.Left, glyph, " ", title)
 }

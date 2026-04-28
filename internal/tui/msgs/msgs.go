@@ -22,3 +22,24 @@ type StatusMsg struct {
 type SparksLoadedMsg struct {
 	Items []domain.Spark
 }
+
+// ProjectsLoadedMsg is broadcast after the project list is refreshed.
+// The projects screen and dashboard listen for it.
+type ProjectsLoadedMsg struct {
+	Items []domain.Project
+}
+
+// SparkPromotedMsg is emitted when a spark is successfully promoted to a
+// project. The root routes to the Projects tab and broadcasts both the updated
+// spark list and the new project list.
+type SparkPromotedMsg struct {
+	Project  domain.Project
+	Sparks   []domain.Spark
+	Projects []domain.Project
+}
+
+// ThemeChangedMsg is emitted by the settings screen when the user switches
+// theme. The root and every screen listen for it to re-style themselves.
+type ThemeChangedMsg struct {
+	ThemeName string
+}

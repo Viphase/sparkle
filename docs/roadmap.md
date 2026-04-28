@@ -2,42 +2,52 @@
 
 ## Milestone 1 — Local TUI Foundation
 
-Implement:
+Status: complete.
+
+Implemented:
 - Go module
 - folder structure
 - app shell
-- workspace selection
+- workspace selection through `$SPARKLE_HOME` and `--workspace <path>`
 - dashboard
 - tabs
 - themes
 - basic keyboard navigation
-- config loading (TOML)
-- sample data generation command
+- config loading at `.sparkle/config.toml`
+- sample data generation command: `sparkle sample-data`
 
 No real AI. Mouse support deferred to M4 — keep M1 keyboard-only.
 
 ## Milestone 2 — Sparks
 
-Implement:
+Status: complete.
+
+Implemented:
 - create spark
 - edit spark
 - list sparks
 - archive spark
-- promote spark to project
 - Markdown storage
-- search/filter
+- search
+- promote spark to project (`p` key → creates project, marks spark promoted, routes to Projects tab)
 
 ## Milestone 3 — Projects
 
-Implement:
-- project list
-- project detail
-- editable project fields
-- architecture section
-- target audience section
-- GitHub URL section
-- roadmap section
-- notes section
+Status: in progress.
+
+Implemented:
+- project list (left pane, keyboard navigation)
+- project detail (right pane)
+- editable project fields: title, status, GitHub URL, target audience, tags
+- status cycling with ← → keys
+- open project.md in `$EDITOR` with `o` key
+- notes.md bootstrapped alongside every new project
+- project count on dashboard
+- sample projects in `sparkle sample-data`
+- project Markdown storage with frontmatter + default body sections
+
+Remaining:
+- architecture, roadmap, and notes sections are in the project.md body — editable via `o` ($EDITOR); no inline TUI editor yet
 
 ## Milestone 4 — Tracking, Charts, and Mouse
 
@@ -49,7 +59,7 @@ Implement:
 - weekly activity chart
 - streak calculation
 - activity summary (regenerated `tracker.md`)
-- tracker screen
+- dashboard tracking panel
 - mouse support across existing screens
 
 ## Milestone 5 — AI-Ready Architecture
