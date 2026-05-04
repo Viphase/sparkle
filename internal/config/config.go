@@ -25,6 +25,10 @@ type Config struct {
 	// AIModel is the Anthropic model used when the real provider is active.
 	// Defaults to "claude-haiku-4-5".
 	AIModel string
+	// ActiveSkill selects an injectable prompt skill that specialises the AI
+	// guide for a specific project type. Empty string means no specialisation.
+	// Valid values match domain.Skill constants (e.g. "cli-tool", "web-api").
+	ActiveSkill string
 }
 
 func Defaults() Config {
@@ -144,6 +148,12 @@ func parseInto(cfg *Config, raw string) error {
 				return fmt.Errorf("parse config line %d: %w", lineNo+1, err)
 			}
 			cfg.AIModel = s
+		case "active_skill":
+			s, err := parseString(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: %w", lineNo+1, err)
+			}
+			cfg.ActiveSkill = s
 		default:
 			// Preserve forward compatibility: future config keys should not
 			// make an older binary refuse to boot.
@@ -212,6 +222,9 @@ func marshalConfig(cfg Config) []byte {
 	b.WriteString(fmt.Sprintf("words_threshold = %d\n", cfg.WordsThreshold))
 	b.WriteString(fmt.Sprintf("mouse_enabled = %v\n", cfg.MouseEnabled))
 	b.WriteString(fmt.Sprintf("ai_model = %q\n", cfg.AIModel))
+	if cfg.ActiveSkill != "" {
+		b.WriteString(fmt.Sprintf("active_skill = %q\n", cfg.ActiveSkill))
+	}
 	// anthropic_api_key is intentionally omitted from default writes to avoid
 	// accidentally committing keys. Set it manually or use ANTHROPIC_API_KEY env.
 	if cfg.AnthropicAPIKey != "" {

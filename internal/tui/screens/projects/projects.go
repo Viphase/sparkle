@@ -21,8 +21,9 @@ import (
 type Loader interface {
 	ListProjects() ([]domain.Project, error)
 	SaveProject(domain.Project) error
-	ProjectPath(id string) string // path to project.md, used by open-in-editor
-	NotesPath(id string) string   // path to notes.md, used by open-in-editor
+	ProjectPath(id string) string  // path to project.md, used by open-in-editor
+	NotesPath(id string) string    // path to notes.md, used by open-in-editor
+	DeleteProject(id string) error // permanently removes a project directory
 }
 
 // pane tracks which side has keyboard focus.
@@ -61,10 +62,11 @@ type Model struct {
 	listH  int
 	loaded bool
 
-	activePane  pane
-	detailField int
-	inputActive bool
-	input       textinput.Model
+	activePane    pane
+	detailField   int
+	inputActive   bool
+	input         textinput.Model
+	deleteConfirm bool
 
 	now func() time.Time
 }
@@ -162,6 +164,9 @@ func (m *Model) updateMouse(msg tea.MouseMsg) (screens.Screen, tea.Cmd) {
 }
 
 func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
+	if key.String() != "D" {
+		m.deleteConfirm = false
+	}
 	switch key.String() {
 	case "j", "down":
 		if m.cursor+1 < len(m.items) {
@@ -198,11 +203,25 @@ func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.openNotesInEditorCmd(p)
+	case "D":
+		p, ok := m.selectedProject()
+		if !ok {
+			return m, nil
+		}
+		if m.deleteConfirm {
+			m.deleteConfirm = false
+			return m, m.deleteProjectCmd(p)
+		}
+		m.deleteConfirm = true
+		return m, nil
 	}
 	return m, nil
 }
 
 func (m *Model) updateDetail(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
+	if key.String() != "D" {
+		m.deleteConfirm = false
+	}
 	switch key.String() {
 	case "esc", "h":
 		m.activePane = paneList
@@ -243,6 +262,17 @@ func (m *Model) updateDetail(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.openNotesInEditorCmd(p)
+	case "D":
+		p, ok := m.selectedProject()
+		if !ok {
+			return m, nil
+		}
+		if m.deleteConfirm {
+			m.deleteConfirm = false
+			return m, m.deleteProjectCmd(p)
+		}
+		m.deleteConfirm = true
+		return m, nil
 	}
 	return m, nil
 }
@@ -384,6 +414,25 @@ func (m *Model) saveProjectCmd(p domain.Project) tea.Cmd {
 	}
 }
 
+func (m *Model) deleteProjectCmd(p domain.Project) tea.Cmd {
+	loader := m.loader
+	cursor := m.cursor
+	return func() tea.Msg {
+		if loader == nil {
+			return msgs.ErrorMsg{Source: "delete-project", Err: fmt.Errorf("no storage configured")}
+		}
+		if err := loader.DeleteProject(p.ID); err != nil {
+			return msgs.ErrorMsg{Source: "delete-project", Err: err}
+		}
+		items, err := loader.ListProjects()
+		if err != nil {
+			return msgs.ErrorMsg{Source: "list-projects", Err: err}
+		}
+		_ = cursor // cursor will be clamped on ProjectsLoadedMsg
+		return msgs.ProjectsLoadedMsg{Items: items}
+	}
+}
+
 func (m *Model) selectedProject() (domain.Project, bool) {
 	if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
 		return domain.Project{}, false
@@ -438,8 +487,11 @@ func (m *Model) View(width, height int) string {
 		return m.emptyView(width, height)
 	}
 
-	lw := listPaneW
-	if width < lw+20 {
+	lw := listPaneW // 30 by default
+	if width < 80 {
+		lw = 20
+	}
+	if width < 60 {
 		lw = width / 3
 	}
 	rw := width - lw - 1
@@ -495,7 +547,13 @@ func (m *Model) renderListPane(width, height int) string {
 	if m.activePane == paneList {
 		footerColor = m.theme.Muted
 	}
-	rows = append(rows, "", theme.Fg(m.theme, footerColor).Render("j/k  enter open"))
+	footer := "j/k  enter open  D delete"
+	if m.deleteConfirm {
+		footer = theme.Fg(m.theme, m.theme.Danger).Render("D again to confirm delete — any other key cancels")
+	} else {
+		footer = theme.Fg(m.theme, footerColor).Render(footer)
+	}
+	rows = append(rows, "", footer)
 
 	content := strings.Join(rows, "\n")
 	return theme.Base(m.theme).Width(width).Height(height).Render(content)
@@ -616,13 +674,16 @@ func (m *Model) detailHint() string {
 	if m.inputActive {
 		return "enter save  esc cancel"
 	}
+	if m.deleteConfirm {
+		return theme.Fg(m.theme, m.theme.Danger).Render("D again to confirm delete — any other key cancels")
+	}
 	if m.activePane == paneDetail {
 		if m.detailField == fldStatus {
-			return "← → change status  j/k select  o project.md  O notes.md  esc back"
+			return "← → change status  j/k select  o project.md  O notes.md  D delete  esc back"
 		}
-		return "e edit  j/k select  ← → status  o project.md  O notes.md  esc back"
+		return "e edit  j/k select  ← → status  o project.md  O notes.md  D delete  esc back"
 	}
-	return "enter/l open detail  o project.md  O notes.md"
+	return "enter/l open detail  o project.md  O notes.md  D delete"
 }
 
 func (m *Model) statusColor(s domain.ProjectStatus) lipgloss.Color {

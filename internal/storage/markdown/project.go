@@ -119,6 +119,19 @@ func (s *Store) ListProjects() ([]domain.Project, error) {
 	return out, nil
 }
 
+// DeleteProject removes the project directory and all its contents.
+// It is the caller's responsibility to confirm before calling.
+func (s *Store) DeleteProject(id string) error {
+	if id == "" {
+		return fmt.Errorf("project id required")
+	}
+	dir := s.ProjectDir(id)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+	return nil
+}
+
 func applyProjectToDocument(doc Document, p domain.Project) Document {
 	if doc.Frontmatter == nil {
 		doc.Frontmatter = map[string]any{}

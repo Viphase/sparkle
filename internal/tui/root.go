@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	guideai "github.com/viphase/sparkle/internal/ai"
 	"github.com/viphase/sparkle/internal/config"
@@ -15,25 +17,38 @@ import (
 	"github.com/viphase/sparkle/internal/tui/components/tabs"
 	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/tui/screens"
-	screenai "github.com/viphase/sparkle/internal/tui/screens/ai"
 	"github.com/viphase/sparkle/internal/tui/screens/dashboard"
-	"github.com/viphase/sparkle/internal/tui/screens/projects"
 	"github.com/viphase/sparkle/internal/tui/screens/settings"
-	"github.com/viphase/sparkle/internal/tui/screens/sparks"
 	"github.com/viphase/sparkle/internal/tui/theme"
+	workspacesurf "github.com/viphase/sparkle/internal/tui/surfaces/workspace"
 	"github.com/viphase/sparkle/internal/workspace"
 )
 
+// M12: minimum terminal size for graceful degraded mode. No maximums.
 const (
-	minAppWidth  = 72
-	minAppHeight = 20
-	maxAppWidth  = 118
-	maxAppHeight = 36
+	minAppWidth  = 50
+	minAppHeight = 16
 )
 
 var thinkingFrames = []string{"ꕤ"}
 
 type animationTickMsg struct{}
+
+// workspaceScreen adapts *workspacesurf.Model to the screens.Screen interface
+// so the root can treat it like any other screen.
+type workspaceScreen struct {
+	m *workspacesurf.Model
+}
+
+func (ws *workspaceScreen) Init() tea.Cmd { return ws.m.Init() }
+func (ws *workspaceScreen) Title() string { return ws.m.Title() }
+func (ws *workspaceScreen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	next, cmd := ws.m.Update(msg)
+	return &workspaceScreen{m: next}, cmd
+}
+func (ws *workspaceScreen) View(w, h int) string { return ws.m.View(w, h) }
+func (ws *workspaceScreen) inForm() bool         { return ws.m.InForm() }
+func (ws *workspaceScreen) isEditing() bool      { return ws.m.IsEditing() }
 
 type Root struct {
 	theme        theme.Theme
@@ -45,11 +60,12 @@ type Root struct {
 	status       statusbar.Model
 	ws           workspace.Workspace
 	store        *markdown.Store
+	cfg          config.Config
 	mouseEnabled bool
+	showHelp     bool // L7: context-aware help overlay
 }
 
-// NewRoot wires the root model. ws and store may be zero/nil — handy for tests
-// — in which case background loads simply don't fire.
+// NewRoot wires the root model with defaults. ws and store may be zero/nil for tests.
 func NewRoot(ws workspace.Workspace, store *markdown.Store) Root {
 	return NewRootWithConfig(ws, store, config.Defaults())
 }
@@ -59,49 +75,56 @@ func NewRoot(ws workspace.Workspace, store *markdown.Store) Root {
 func NewRootWithConfig(ws workspace.Workspace, store *markdown.Store, cfg config.Config) Root {
 	t := theme.ByName(cfg.Theme)
 
-	// Saver and Promoter for the sparks screen — both satisfied by *markdown.Store.
-	var saver sparks.Saver
-	var promoter sparks.Promoter
-	if store != nil {
-		saver = store
-		promoter = store
+	provider := buildProvider(cfg)
+	wsModel := workspacesurf.New(t, ws.Root, provider)
+	if cfg.ActiveSkill != "" {
+		wsModel.SetSkill(cfg.ActiveSkill)
 	}
 
-	// Loader for the projects screen — also satisfied by *markdown.Store.
-	var projectLoader projects.Loader
-	if store != nil {
-		projectLoader = store
-	}
-
-	// Select AI provider: use real Anthropic provider when an API key is set,
-	// otherwise fall back to the local mock.
-	var aiScreen screens.Screen
-	if key := cfg.ResolvedAPIKey(); key != "" {
-		realProvider := guideai.NewAnthropicProvider(key, cfg.AIModel)
-		aiScreen = screenai.NewWithWorkDir(t, ws.Root, realProvider)
-	} else {
-		aiScreen = screenai.NewWithWorkDir(t, ws.Root)
-	}
-
-	return Root{
+	r := Root{
 		theme:        t,
-		route:        RouteDashboard,
+		route:        RoutePulse,
 		status:       statusbar.New(t),
 		ws:           ws,
 		store:        store,
+		cfg:          cfg,
 		mouseEnabled: cfg.MouseEnabled,
 		screens: map[Route]screens.Screen{
-			RouteDashboard: dashboard.New(t),
-			RouteSparks:    sparks.New(t, saver, promoter),
-			RouteProjects:  projects.New(t, projectLoader),
-			RouteAI:        aiScreen,
+			RouteWorkspace: &workspaceScreen{m: wsModel},
+			RoutePulse:     dashboard.New(t),
 			RouteSettings:  settings.New(t, ws, cfg),
 		},
 	}
+	r.status = r.status.SetHint(routeHint(r.route, false))
+	return r
+}
+
+// routeHint returns the surface-specific keybinding strip shown in the status
+// bar. editing=true overrides the workspace hint to highlight ctrl+s.
+func routeHint(rt Route, editing bool) string {
+	if editing {
+		return "ctrl+s  save  ·  esc  cancel  ·  ctrl+c  quit"
+	}
+	switch rt {
+	case RouteWorkspace:
+		return "j/k  nav  ·  e  edit  ·  n  new spark  ·  i  AI  ·  a  ask  ·  ?  help"
+	case RoutePulse:
+		return "j/k  scroll  ·  g/G  top/bottom  ·  tab  switch  ·  ?  help"
+	case RouteSettings:
+		return "j/k  nav  ·  enter  edit  ·  esc  cancel  ·  ?  help"
+	}
+	return "tab  switch  ·  ?  help  ·  q  quit"
+}
+
+func buildProvider(cfg config.Config) guideai.Provider {
+	if key := cfg.ResolvedAPIKey(); key != "" {
+		return guideai.NewAnthropicProvider(key, cfg.AIModel)
+	}
+	return nil // workspace uses MockProvider as fallback when nil
 }
 
 func (r Root) Init() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(r.screens)+5)
+	cmds := make([]tea.Cmd, 0, len(r.screens)+6)
 	cmds = append(cmds, animationTickCmd())
 	if r.mouseEnabled {
 		cmds = append(cmds, tea.EnableMouseCellMotion)
@@ -113,6 +136,9 @@ func (r Root) Init() tea.Cmd {
 		cmds = append(cmds, c)
 	}
 	if c := LoadTrackingCmd(r.store, r.ws); c != nil {
+		cmds = append(cmds, c)
+	}
+	if c := LoadSkillsCmd(r.store, r.ws); c != nil {
 		cmds = append(cmds, c)
 	}
 	for _, s := range r.screens {
@@ -144,73 +170,49 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newT := theme.ByName(m.ThemeName)
 		r.theme = newT
 		r.status = r.status.WithTheme(newT)
-		var cmds []tea.Cmd
-		for rt, s := range r.screens {
-			next, cmd := s.Update(msg)
-			r.screens[rt] = next
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+		return r, r.broadcastToAll(msg)
+	case msgs.APIKeyChangedMsg:
+		r.cfg.AnthropicAPIKey = m.Key
+		r.cfg.AIModel = m.Model
+		provider := "mock provider · local only"
+		if m.Key != "" {
+			provider = "claude · " + m.Model
 		}
-		return r, tea.Batch(cmds...)
+		r.status = r.status.SetInfo("AI provider: " + provider)
+		return r, r.broadcastToAll(msg)
 	case msgs.SparksLoadedMsg:
-		// Broadcast to every screen — sparks screen needs the list, dashboard
-		// needs the count.
-		var cmds []tea.Cmd
-		for rt, s := range r.screens {
-			next, cmd := s.Update(msg)
-			r.screens[rt] = next
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		return r, tea.Batch(cmds...)
+		return r, r.broadcastToAll(msg)
 	case msgs.ProjectsLoadedMsg:
-		var cmds []tea.Cmd
-		for rt, s := range r.screens {
-			next, cmd := s.Update(msg)
-			r.screens[rt] = next
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		return r, tea.Batch(cmds...)
+		return r, r.broadcastToAll(msg)
 	case msgs.TrackingLoadedMsg:
-		var cmds []tea.Cmd
-		for rt, s := range r.screens {
-			next, cmd := s.Update(msg)
-			r.screens[rt] = next
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		return r, tea.Batch(cmds...)
+		return r, r.broadcastToAll(msg)
+	case msgs.SkillDefsLoadedMsg:
+		return r, r.broadcastToAll(msg)
 	case msgs.MouseToggledMsg:
 		r.mouseEnabled = m.Enabled
 		if m.Enabled {
 			return r, tea.EnableMouseCellMotion
 		}
 		return r, tea.DisableMouse
+	case msgs.SkillChangedMsg:
+		skillName := m.Skill
+		if skillName == "" {
+			skillName = "none"
+		}
+		r.status = r.status.SetInfo("AI skill: " + skillName)
+		return r, r.broadcastToAll(msg)
 	case tea.MouseMsg:
 		return r.handleMouse(m)
 	case msgs.SparkPromotedMsg:
-		// Route to projects, broadcast updated sparks + projects, show status.
-		r.route = RouteProjects
-		r.status = r.status.SetInfo(fmt.Sprintf("✦ %q promoted to project", m.Project.Title))
+		// Stay on Workspace; route the promoted project context there.
+		r.route = RouteWorkspace
+		r.status = r.status.SetInfo(fmt.Sprintf("✦ %q promoted — AI guide ready", m.Project.Title))
 		sparksMsg := msgs.SparksLoadedMsg{Items: m.Sparks}
 		projectsMsg := msgs.ProjectsLoadedMsg{Items: m.Projects}
+		ctxMsg := msgs.ProjectContextMsg{Project: m.Project}
 		var cmds []tea.Cmd
-		for rt, s := range r.screens {
-			next, cmd := s.Update(sparksMsg)
-			r.screens[rt] = next
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		for rt, s := range r.screens {
-			next, cmd := s.Update(projectsMsg)
-			r.screens[rt] = next
-			if cmd != nil {
+		for _, toSend := range []tea.Msg{sparksMsg, projectsMsg, ctxMsg} {
+			if cmd := r.broadcastToAll(toSend); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
@@ -219,33 +221,37 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	next, cmd := r.screens[r.route].Update(msg)
 	r.screens[r.route] = next
+	r.status = r.status.SetHint(r.currentHint())
 	return r, cmd
 }
 
-// handleGlobalKey processes keys the root owns. Returns (cmd, true) if the
-// root consumed the key; otherwise the active screen sees it.
+// currentHint resolves the route-specific status-bar hint, accounting for the
+// embedded editor when on Workspace.
+func (r Root) currentHint() string {
+	editing := false
+	if ws, ok := r.screens[RouteWorkspace].(*workspaceScreen); ok {
+		editing = ws.isEditing() && r.route == RouteWorkspace
+	}
+	return routeHint(r.route, editing)
+}
+
+// broadcastToAll sends msg to every screen and returns a batched cmd.
+func (r *Root) broadcastToAll(msg tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
+	for rt, s := range r.screens {
+		next, cmd := s.Update(msg)
+		r.screens[rt] = next
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// handleGlobalKey processes keys the root owns.
 func (r *Root) handleGlobalKey(m tea.KeyMsg) (tea.Cmd, bool) {
-	// Let the sparks screen handle all keys when in text-input mode.
-	if r.route == RouteSparks {
-		if sm, ok := r.screens[RouteSparks].(*sparks.Model); ok && sm.InForm() {
-			if m.String() == "ctrl+c" {
-				return tea.Quit, true
-			}
-			return nil, false
-		}
-	}
-	// Let the projects screen handle all keys when in text-input mode.
-	if r.route == RouteProjects {
-		if pm, ok := r.screens[RouteProjects].(*projects.Model); ok && pm.InForm() {
-			if m.String() == "ctrl+c" {
-				return tea.Quit, true
-			}
-			return nil, false
-		}
-	}
-	// Let the AI screen receive text keys while its chat input is focused.
-	if r.route == RouteAI {
-		if am, ok := r.screens[RouteAI].(*screenai.Model); ok && am.InForm() {
+	if r.route == RouteWorkspace {
+		if ws, ok := r.screens[RouteWorkspace].(*workspaceScreen); ok && ws.inForm() {
 			if m.String() == "ctrl+c" {
 				return tea.Quit, true
 			}
@@ -255,57 +261,55 @@ func (r *Root) handleGlobalKey(m tea.KeyMsg) (tea.Cmd, bool) {
 	switch m.String() {
 	case "q", "ctrl+c":
 		return tea.Quit, true
+	case "esc":
+		if r.showHelp {
+			r.showHelp = false
+			return nil, true
+		}
+		if r.status.HasError() {
+			r.status = r.status.ClearError()
+			return nil, true
+		}
 	case "?":
-		r.status = r.status.ToggleHelp()
+		r.showHelp = !r.showHelp
 		return nil, true
 	case "tab":
 		r.route = r.route.Next()
+		r.status = r.status.SetHint(r.currentHint())
 		return nil, true
 	case "shift+tab":
 		r.route = r.route.Prev()
+		r.status = r.status.SetHint(r.currentHint())
 		return nil, true
 	}
 	if jump, ok := numberRoute(m.String()); ok {
 		r.route = jump
+		r.status = r.status.SetHint(r.currentHint())
 		return nil, true
 	}
 	return nil, false
 }
 
-// handleMouse dispatches mouse events.
-//   - Clicks in the tab bar (top 2 rows of the app) switch tabs via hit-testing.
-//   - Clicks and wheel events in the content area are forwarded to the active
-//     screen with Y adjusted to be content-relative (0 = first content row).
-//   - Clicks outside the app widget are ignored.
+// handleMouse dispatches mouse events. App fills the full terminal — no offset.
 func (r Root) handleMouse(m tea.MouseMsg) (tea.Model, tea.Cmd) {
 	termW, termH := r.viewport()
 	if termW < minAppWidth || termH < minAppHeight {
 		return r, nil
 	}
-	appW := clamp(termW, minAppWidth, maxAppWidth)
-	appH := clamp(termH, minAppHeight, maxAppHeight)
-	appX := (termW - appW) / 2
-	appY := (termH - appH) / 2
 
 	// tabs = 2 rows (content line + bottom border).
-	// statusbar = 2 rows (top border + content line).
 	const tabsH = 2
 
-	relX := m.X - appX
-	relY := m.Y - appY
-
-	// Ignore events outside the app widget.
-	if relX < 0 || relX >= appW || relY < 0 || relY >= appH {
+	if m.X < 0 || m.X >= termW || m.Y < 0 || m.Y >= termH {
 		return r, nil
 	}
 
-	if m.Type == tea.MouseLeft && relY < tabsH {
-		// ── Tab bar click ──────────────────────────────────────────
+	if m.Type == tea.MouseLeft && m.Y < tabsH {
 		labels := r.tabLabels()
 		current := r.currentTabIndex()
-		zones := tabs.Zones(appW, current, labels)
+		zones := tabs.Zones(termW, current, labels)
 		for i, z := range zones {
-			if relX >= z.Start && relX < z.End {
+			if m.X >= z.Start && m.X < z.End {
 				if i < len(orderedRoutes) {
 					r.route = orderedRoutes[i]
 				}
@@ -315,12 +319,10 @@ func (r Root) handleMouse(m tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return r, nil
 	}
 
-	// ── Content area event ─────────────────────────────────────────
-	// Forward to the active screen with Y made content-relative.
 	adjusted := tea.MouseMsg{
 		Type:  m.Type,
-		X:     relX,
-		Y:     relY - tabsH,
+		X:     m.X,
+		Y:     m.Y - tabsH,
 		Alt:   m.Alt,
 		Ctrl:  m.Ctrl,
 		Shift: m.Shift,
@@ -330,21 +332,14 @@ func (r Root) handleMouse(m tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return r, cmd
 }
 
-// tabLabels builds the ordered label slice used for tab rendering and zone
-// computation, matching exactly what View produces.
 func (r Root) tabLabels() []string {
 	labels := make([]string, 0, len(orderedRoutes))
 	for _, rt := range orderedRoutes {
-		label := r.screens[rt].Title()
-		if rt == RouteAI {
-			label = r.thinkingGlyph() + " " + label
-		}
-		labels = append(labels, label)
+		labels = append(labels, r.screens[rt].Title())
 	}
 	return labels
 }
 
-// currentTabIndex returns the 0-based index of the active route in orderedRoutes.
 func (r Root) currentTabIndex() int {
 	for i, rt := range orderedRoutes {
 		if rt == r.route {
@@ -360,42 +355,152 @@ func (r Root) View() string {
 		return r.minimumSizeView(termW, termH)
 	}
 
-	appW := clamp(termW, minAppWidth, maxAppWidth)
-	appH := clamp(termH, minAppHeight, maxAppHeight)
-
 	labels := make([]string, 0, len(orderedRoutes))
 	current := 0
 	for i, rt := range orderedRoutes {
-		label := r.screens[rt].Title()
-		if rt == RouteAI {
-			label = r.thinkingGlyph() + " " + label
-		}
-		labels = append(labels, label)
+		labels = append(labels, r.screens[rt].Title())
 		if rt == r.route {
 			current = i
 		}
 	}
 
-	tabsView := tabs.Render(r.theme, appW, current, labels)
-	statusView := r.status.View(appW)
+	// M12: use full terminal width — no letterboxing.
+	tabsView := tabs.Render(r.theme, termW, current, labels)
+	statusView := r.status.View(termW)
 
-	contentH := appH - lipgloss.Height(tabsView) - lipgloss.Height(statusView)
+	contentH := termH - lipgloss.Height(tabsView) - lipgloss.Height(statusView)
 	if contentH < 1 {
 		contentH = 1
 	}
-	body := r.screens[r.route].View(appW, contentH)
+	body := r.screens[r.route].View(termW, contentH)
 	bodyStyled := theme.Base(r.theme).
-		Width(appW).
+		Width(termW).
 		Height(contentH).
 		MaxHeight(contentH).
 		Render(body)
 
-	app := lipgloss.JoinVertical(lipgloss.Left, tabsView, bodyStyled, statusView)
-	app = theme.Base(r.theme).Width(appW).Height(appH).MaxHeight(appH).Render(app)
+	assembled := lipgloss.JoinVertical(lipgloss.Left, tabsView, bodyStyled, statusView)
+	// PaintBackground re-applies the app background after ANSI resets so every
+	// cell is painted — fixes "text looks like shit" background transparency.
+	base := theme.PaintBackground(r.theme, termW, termH, assembled)
 
-	placed := lipgloss.Place(termW, termH, lipgloss.Center, lipgloss.Center, app,
-		lipgloss.WithWhitespaceBackground(r.theme.Background))
-	return theme.PaintBackground(r.theme, termW, termH, placed)
+	// L7: help modal — when active, paint the help view on top of base.
+	if r.showHelp {
+		return r.renderHelpView(base, termW, termH)
+	}
+	return base
+}
+
+// renderHelpView renders the context-aware help modal centered over base.
+// It uses lipgloss.Place to position a bordered box at the screen center,
+// writing the result over the (already painted) base frame.
+func (r Root) renderHelpView(base string, termW, termH int) string {
+	t := r.theme
+
+	type keyRow struct{ keys, desc string }
+	global := []keyRow{
+		{"tab / shift+tab", "next / prev surface"},
+		{"1 / 2 / 3", "jump to surface directly"},
+		{"?", "toggle this help"},
+		{"esc", "dismiss error"},
+		{"q / ctrl+c", "quit"},
+	}
+	surfaceKeys := map[Route][]keyRow{
+		RouteWorkspace: {
+			{"j / k", "navigate rail"},
+			{"enter", "focus AI input"},
+			{"i", "toggle AI panel"},
+			{"a", "ask AI"},
+			{"g", "get unstuck"},
+			{"e", "edit item body"},
+			{"ctrl+s", "save edit (in editor)"},
+			{"esc", "cancel edit / close panel"},
+			{"n", "new spark"},
+			{"J / K", "scroll detail"},
+		},
+		RoutePulse: {
+			{"j / k", "scroll down / up"},
+			{"g / G", "top / bottom"},
+		},
+		RouteSettings: {
+			{"j / k", "navigate rows"},
+			{"← → / h l", "cycle values"},
+			{"enter", "edit / test"},
+			{"esc", "cancel edit"},
+		},
+	}
+
+	renderKV := func(rows []keyRow) []string {
+		lines := make([]string, 0, len(rows))
+		for _, r := range rows {
+			k := theme.Fg(t, t.Primary).Width(18).Render(r.keys)
+			d := theme.Fg(t, t.Foreground).Render(r.desc)
+			lines = append(lines, " "+k+d)
+		}
+		return lines
+	}
+
+	header := theme.ApplyGradOn("ꕤ  Key Reference", t.GradientFrom, t.GradientTo, t.Background, true)
+	sectionHdr := func(s string) string {
+		return theme.Fg(t, t.Accent).Bold(true).Render("── " + s)
+	}
+
+	routeLabel := map[Route]string{
+		RouteWorkspace: "WORKSPACE",
+		RoutePulse:     "PULSE",
+		RouteSettings:  "SETTINGS",
+	}
+
+	// No blank line between header and first section — keeps height compact.
+	parts := []string{header, sectionHdr("GLOBAL")}
+	parts = append(parts, renderKV(global)...)
+	if label, ok := routeLabel[r.route]; ok {
+		parts = append(parts, sectionHdr(label))
+		parts = append(parts, renderKV(surfaceKeys[r.route])...)
+	}
+	parts = append(parts, theme.Fg(t, t.Subtle).Italic(true).Render(" ? to close"))
+
+	box := theme.Base(t).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(t.BorderFocus).
+		Padding(0, 1).
+		Render(strings.Join(parts, "\n"))
+
+	// Center the box. Use lipgloss.Place over a blank canvas to get clean
+	// positioning, then splice onto base using ANSI-aware line overlay.
+	boxW := lipgloss.Width(box)
+	boxH := lipgloss.Height(box)
+	startX := (termW - boxW) / 2
+	startY := (termH - boxH) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+
+	baseLines := strings.Split(base, "\n")
+	boxLines := strings.Split(box, "\n")
+	for i, bl := range boxLines {
+		row := startY + i
+		if row >= len(baseLines) {
+			break
+		}
+		baseLines[row] = spliceAtColumn(baseLines[row], bl, startX)
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+// spliceAtColumn replaces visual columns [x, x+width(overlay)] in base with
+// overlay. Uses ANSI-aware truncation so escape codes in base are respected.
+func spliceAtColumn(base, overlay string, x int) string {
+	left := ansi.Truncate(base, x, "")
+	// Pad left to exactly x columns in case base is shorter.
+	leftW := lipgloss.Width(left)
+	if leftW < x {
+		left += strings.Repeat(" ", x-leftW)
+	}
+	return left + overlay
 }
 
 func numberRoute(s string) (Route, bool) {
@@ -448,14 +553,4 @@ func (r Root) minimumSizeView(width, height int) string {
 	placed := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, block,
 		lipgloss.WithWhitespaceBackground(r.theme.Background))
 	return theme.PaintBackground(r.theme, width, height, placed)
-}
-
-func clamp(n, low, high int) int {
-	if n < low {
-		return low
-	}
-	if n > high {
-		return high
-	}
-	return n
 }

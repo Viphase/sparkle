@@ -66,6 +66,18 @@ func (s *Store) LoadSpark(id string) (domain.Spark, error) {
 	return documentToSpark(doc)
 }
 
+// DeleteSpark removes a spark file from disk.
+func (s *Store) DeleteSpark(id string) error {
+	if id == "" {
+		return fmt.Errorf("spark id required")
+	}
+	path := s.SparkPath(id)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete spark: %w", err)
+	}
+	return nil
+}
+
 // ListSparks loads every well-formed spark file in the workspace, sorted by
 // CreatedAt descending. Unparseable files are skipped silently — a UI can
 // surface these later via a separate scan.

@@ -125,6 +125,23 @@ func countActiveDaysInRange(activeDays map[string]bool, from, to time.Time) int 
 	return count
 }
 
+// Last12WeeksWords returns 12 weekly word totals (oldest first, current week last).
+func Last12WeeksWords(events []domain.TrackingEvent, now time.Time) [12]int {
+	thisWeekStart := startOfWeek(now)
+	var weeks [12]int
+	for _, ev := range events {
+		if ev.Type != domain.EventWordsAdded {
+			continue
+		}
+		evWeek := startOfWeek(ev.Timestamp)
+		diff := int(thisWeekStart.Sub(evWeek).Hours() / (24 * 7))
+		if diff >= 0 && diff < 12 {
+			weeks[11-diff] += ev.Value
+		}
+	}
+	return weeks
+}
+
 func dateOf(t time.Time) string {
 	y, m, d := t.Local().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Format("2006-01-02")

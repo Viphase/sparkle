@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 )
 
@@ -94,4 +97,78 @@ func Encode(doc Document) ([]byte, error) {
 	}
 	buf.WriteString(doc.Body)
 	return buf.Bytes(), nil
+}
+
+// BodySection extracts the raw source text under a top-level H1 heading from a
+// Markdown body string. It uses goldmark's AST parser so code fences, nested
+// headings, list nesting, and blank lines are preserved correctly.
+//
+// Matching is case-insensitive on the heading text. The content runs from the
+// line after the matched heading to the line before the next H1 (or EOF).
+// Returns an empty string when no matching heading is found.
+//
+// L2: replaces the old line-by-line string-scan approach with a real AST.
+func BodySection(body, heading string) string {
+	src := []byte(body)
+	parser := goldmark.DefaultParser()
+	reader := text.NewReader(src)
+	doc := parser.Parse(reader)
+
+	want := strings.ToLower(strings.TrimSpace(heading))
+
+	// Walk only the document's direct children (top-level blocks).
+	capturing := false
+	start := -1
+	end := -1
+
+	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
+		if node.Kind() == ast.KindHeading {
+			h := node.(*ast.Heading)
+			if h.Level == 1 {
+				// Extract heading text from its children.
+				var hb strings.Builder
+				for c := node.FirstChild(); c != nil; c = c.NextSibling() {
+					if tc, ok := c.(*ast.Text); ok {
+						hb.Write(tc.Segment.Value(src))
+					}
+				}
+				title := strings.ToLower(strings.TrimSpace(hb.String()))
+				if title == want {
+					capturing = true
+					// Start from the byte after the heading's last byte.
+					if node.Lines().Len() > 0 {
+						seg := node.Lines().At(node.Lines().Len() - 1)
+						start = seg.Stop
+					} else {
+						start = 0
+					}
+					continue
+				}
+				if capturing {
+					// Next H1 found — record where section content ends.
+					if node.Lines().Len() > 0 {
+						seg := node.Lines().At(0)
+						end = seg.Start
+					}
+					break
+				}
+			}
+			continue
+		}
+		if capturing && node.Lines().Len() > 0 {
+			// Track the latest byte seen so we know section's end.
+			seg := node.Lines().At(node.Lines().Len() - 1)
+			if end < seg.Stop {
+				end = seg.Stop
+			}
+		}
+	}
+
+	if start < 0 {
+		return ""
+	}
+	if end < 0 || end > len(src) {
+		end = len(src)
+	}
+	return strings.TrimSpace(string(src[start:end]))
 }

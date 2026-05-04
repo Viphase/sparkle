@@ -151,3 +151,28 @@ func TestBuildSystemPromptFinalizeSuggestsEditBlock(t *testing.T) {
 		t.Errorf("finalize prompt should describe edit block format: %q", prompt)
 	}
 }
+
+func TestBuildSystemPromptInjectsSkillFragment(t *testing.T) {
+	prompt := ai.BuildSystemPrompt(domain.ModeClarify, domain.ProjectContext{}, domain.SkillCLITool)
+	if !strings.Contains(prompt, "CLI TOOL") {
+		t.Errorf("system prompt missing CLI TOOL skill fragment: %q", prompt[:min(200, len(prompt))])
+	}
+	if !strings.Contains(prompt, "Exit code contract") {
+		t.Errorf("system prompt missing exit code focus area: %q", prompt[:min(200, len(prompt))])
+	}
+}
+
+func TestBuildSystemPromptSkillNoneAddsNothing(t *testing.T) {
+	withSkill := ai.BuildSystemPrompt(domain.ModeClarify, domain.ProjectContext{}, domain.SkillNone)
+	withoutSkill := ai.BuildSystemPrompt(domain.ModeClarify, domain.ProjectContext{})
+	if withSkill != withoutSkill {
+		t.Errorf("SkillNone should not change the prompt:\nwith:    %q\nwithout: %q", withSkill, withoutSkill)
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

@@ -1,20 +1,20 @@
 package tui
 
+// Route identifies a top-level surface. v2 has exactly three:
+//   - Workspace  — unified sparks + projects + embedded AI panel
+//   - Pulse      — ntcharts dashboard
+//   - Settings   — sectioned settings modal
 type Route int
 
 const (
-	RouteDashboard Route = iota
-	RouteSparks
-	RouteProjects
-	RouteAI
+	RouteWorkspace Route = iota
+	RoutePulse
 	RouteSettings
 )
 
 var orderedRoutes = []Route{
-	RouteAI,
-	RouteSparks,
-	RouteDashboard,
-	RouteProjects,
+	RoutePulse,
+	RouteWorkspace,
 	RouteSettings,
 }
 
@@ -30,7 +30,7 @@ func (r Route) Next() Route {
 			return orderedRoutes[(i+1)%len(orderedRoutes)]
 		}
 	}
-	return RouteDashboard
+	return RoutePulse
 }
 
 func (r Route) Prev() Route {
@@ -39,19 +39,15 @@ func (r Route) Prev() Route {
 			return orderedRoutes[(i-1+len(orderedRoutes))%len(orderedRoutes)]
 		}
 	}
-	return RouteDashboard
+	return RoutePulse
 }
 
 func (r Route) String() string {
 	switch r {
-	case RouteDashboard:
-		return "Dashboard"
-	case RouteSparks:
-		return "Sparks"
-	case RouteProjects:
-		return "Projects"
-	case RouteAI:
-		return "AI"
+	case RouteWorkspace:
+		return "Workspace"
+	case RoutePulse:
+		return "Pulse"
 	case RouteSettings:
 		return "Settings"
 	}

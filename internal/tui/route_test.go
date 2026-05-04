@@ -3,8 +3,9 @@ package tui
 import "testing"
 
 func TestRouteNextWraps(t *testing.T) {
-	if got := RouteDashboard.Next(); got != RouteProjects {
-		t.Errorf("Dashboard.Next() = %v, want Projects", got)
+	// Pulse is the first tab; next should be Workspace.
+	if got := RoutePulse.Next(); got != RouteWorkspace {
+		t.Errorf("Pulse.Next() = %v, want Workspace", got)
 	}
 	last := orderedRoutes[len(orderedRoutes)-1]
 	if got := last.Next(); got != orderedRoutes[0] {
@@ -13,8 +14,9 @@ func TestRouteNextWraps(t *testing.T) {
 }
 
 func TestRoutePrevWraps(t *testing.T) {
-	if got := RouteSparks.Prev(); got != RouteAI {
-		t.Errorf("Sparks.Prev() = %v, want AI", got)
+	// Workspace is the second tab; prev should be Pulse.
+	if got := RouteWorkspace.Prev(); got != RoutePulse {
+		t.Errorf("Workspace.Prev() = %v, want Pulse", got)
 	}
 	first := orderedRoutes[0]
 	last := orderedRoutes[len(orderedRoutes)-1]
@@ -25,10 +27,8 @@ func TestRoutePrevWraps(t *testing.T) {
 
 func TestRouteString(t *testing.T) {
 	cases := map[Route]string{
-		RouteDashboard: "Dashboard",
-		RouteSparks:    "Sparks",
-		RouteProjects:  "Projects",
-		RouteAI:        "AI",
+		RouteWorkspace: "Workspace",
+		RoutePulse:     "Pulse",
 		RouteSettings:  "Settings",
 	}
 	for r, want := range cases {
@@ -38,8 +38,9 @@ func TestRouteString(t *testing.T) {
 	}
 }
 
-func TestRouteOrderKeepsDashboardCenteredInPrimaryNav(t *testing.T) {
-	want := []Route{RouteAI, RouteSparks, RouteDashboard, RouteProjects, RouteSettings}
+func TestRouteOrderV2(t *testing.T) {
+	// Pulse is prime (first), then Workspace, then Settings.
+	want := []Route{RoutePulse, RouteWorkspace, RouteSettings}
 	if len(orderedRoutes) != len(want) {
 		t.Fatalf("len(orderedRoutes)=%d, want %d", len(orderedRoutes), len(want))
 	}
@@ -53,7 +54,7 @@ func TestRouteOrderKeepsDashboardCenteredInPrimaryNav(t *testing.T) {
 func TestAllRoutesIsCopy(t *testing.T) {
 	got := AllRoutes()
 	got[0] = RouteSettings
-	if orderedRoutes[0] != RouteAI {
+	if orderedRoutes[0] != RoutePulse {
 		t.Error("AllRoutes() must return a copy; mutation leaked back to package state")
 	}
 }
@@ -64,12 +65,10 @@ func TestNumberRoute(t *testing.T) {
 		want Route
 		ok   bool
 	}{
-		{"1", RouteAI, true},
-		{"2", RouteSparks, true},
-		{"3", RouteDashboard, true},
-		{"4", RouteProjects, true},
-		{"5", RouteSettings, true},
-		{"6", 0, false},
+		{"1", RoutePulse, true},
+		{"2", RouteWorkspace, true},
+		{"3", RouteSettings, true},
+		{"4", 0, false},
 		{"0", 0, false},
 		{"a", 0, false},
 		{"", 0, false},

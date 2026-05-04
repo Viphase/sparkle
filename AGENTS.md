@@ -1,74 +1,132 @@
 # AGENTS.md — Sparkle Project Control Map
 
-You are working on **Sparkle**, a local-first Go TUI app for turning rough project sparks into structured, trackable project workspaces.
+You are working on **Sparkle**, a local-first Go TUI app for turning
+rough project sparks into structured, trackable project workspaces.
 
-Keep this file short. Use the linked docs when a task needs detail.
+The owner audited the v1 implementation on 2026-04-29 and judged it a
+prototype: tab-based AI nobody uses, hard-capped layout, settings with
+no API-key field, "charts" made from unicode bars, hardcoded skills,
+no guided onboarding. The codebase still flags every milestone M1–M10
+as "complete" — **do not treat that as the bar**. Read FIXES.md and
+the v2 docs.
 
-## Product Goal
+This file mirrors `CLAUDE.md` so non-Claude agents get the same
+control map. Keep them in sync.
 
-Sparkle helps a user capture a short idea — a "spark" — and develop it into a structured project with project notes, architecture, target audience, GitHub link, milestones, and automatic work tracking.
+## Read first, in order
 
-Personal-first. Team support may come later, but v1 is for one user managing fewer than 100 projects across multiple workspaces.
+1. **[`FIXES.md`](FIXES.md)** — concrete punch list of what is broken.
+2. **[`docs/v2-vision.md`](docs/v2-vision.md)** — the four redesign
+   principles and the "what done means" definition.
+3. **[`docs/roadmap.md`](docs/roadmap.md)** — v2 milestones M11–M16,
+   sequencing, exit criteria.
 
-## Required Stack
+Then dive into whichever surface doc applies to your task:
 
-- Go
-- Bubble Tea for TUI architecture
-- Lip Gloss for styling
-- Bubbles for reusable TUI components
-- ntcharts or another Bubble Tea-compatible charting library
+- Product flows: `docs/product-spec.md`
+- Layout, breakpoints, components: `docs/tui-ux.md`
+- AI mentor, skills, prompts, providers: `docs/ai-guide.md`
+- Pulse dashboard, ntcharts contract: `docs/tracking.md`
+- Package layout, layering: `docs/architecture.md`
+- File formats on disk: `docs/storage-format.md`
+- Test layering and fixtures: `docs/testing.md`
+
+## Product goal (one line)
+
+Sparkle walks one person from a half-formed spark to a structured,
+tracked project, with an opinionated AI mentor that lives next to the
+work and never makes them switch tabs.
+
+Personal-first. v2 is for one user managing fewer than 100 projects in
+one workspace. Multi-user, sync, and team features are out of scope.
+
+## Required stack
+
+- Go 1.24+
+- Bubble Tea (TUI architecture)
+- Lip Gloss (styling)
+- Bubbles (reusable widgets, including `textarea`)
+- **`github.com/NimbleMarkets/ntcharts`** (charts — required, currently
+  not yet imported, M13 fixes that)
+- **`github.com/yuin/goldmark`** (real Markdown AST for body parse)
 - Markdown-first local storage
-- clean architecture
-- tests from the start
+- Clean architecture
+- Tests from the start
 
-## Non-Negotiable Rules
+## Non-negotiable rules
 
-1. Keep domain logic independent from Bubble Tea.
-2. Do not block inside Bubble Tea `Update`.
-3. Use `tea.Cmd` for file I/O, scanning, and future API calls.
-4. Store user data in readable Markdown.
-5. Never silently overwrite important user files.
-6. Keep the app fast for fewer than 100 projects.
-7. Make the TUI polished, keyboard-friendly, and mouse-friendly.
-8. Run tests before declaring implementation complete.
+1. Domain logic does not import Bubble Tea, Lip Gloss, or filesystem
+   packages.
+2. `Update` never blocks. All I/O goes through `tea.Cmd`.
+3. User content is readable Markdown. Derived data is JSON/JSONL/TOML.
+4. Never silently overwrite a user file.
+5. The TUI is keyboard-first AND mouse-friendly. Both reach the same
+   intents.
+6. Every screen is responsive: 50×16 (graceful) up to whatever the
+   terminal gives you. **No `maxAppWidth`/`maxAppHeight` constants.**
+7. Charts use ntcharts. **No unicode-bar `strings.Repeat("█", n)`
+   hacks.** This is a hard prohibition, not a preference.
+8. The AI is a panel embedded in the Workspace surface, **not a
+   sibling tab**. The user must never switch surfaces to ask a
+   question about the project they are looking at.
+9. Skills are loaded from `.sparkle/skills/*.md`. **No hardcoded
+   `Skill*` constants** in user-facing code. Built-ins are seeded as
+   files on first launch.
+10. The base system prompt lives in `.sparkle/prompts/system.md` with
+    a built-in default fallback. The user can edit it.
+11. Every conversation persists to `.sparkle/sessions/<project_id>.jsonl`.
+12. `go test ./...` passes before any milestone is declared done.
+13. Use this ascii symbol as a logo: ꕤ
 
-## Primary Resources
+## Surface inventory
 
-Read FIXES.md to know the current issues
+v2 has exactly **two** top-level surfaces:
 
-Read these files when relevant:
+- **Workspace** (`internal/tui/surfaces/workspace/`) — items rail +
+  detail + AI panel. Replaces v1's Sparks, Projects, AI tabs.
+- **Pulse** (`internal/tui/surfaces/pulse/`) — ntcharts dashboard.
+  Replaces v1's Dashboard.
 
-- Product spec: `docs/product-spec.md`
-- Architecture: `docs/architecture.md`
-- Storage format: `docs/storage-format.md`
-- Dashboard tracking: `docs/tracking.md`
-- AI guide design: `docs/ai-guide.md`
-- TUI/UX design: `docs/tui-ux.md`
-- Roadmap: `docs/roadmap.md`
-- Testing strategy: `docs/testing.md`
+And **four** modals:
 
-## Expected First Implementation Order
+- **Settings** (`,`) — sectioned, with API-key field and Test
+  connection button.
+- **Help** (`?`) — context-aware key reference.
+- **Capture** (`n`) — single-input new-spark modal.
+- **Review** — `<edit>` block diff approval, opens automatically when
+  the AI proposes one.
 
-1. Create Go module and folder structure.
-2. Implement domain models.
-3. Implement Markdown storage.
-4. Implement app shell and navigation.
-5. Implement sparks.
-6. Implement project workspace.
-7. Implement dashboard tracking and charts.
-8. Add mock AI provider and AI screen.
-9. Write README roadmap.
-10. Ensure `go test ./...` passes.
+## Implementation order for v2
 
-## Definition of Done
+1. **M11** — Real settings modal + first-run setup wizard
+2. **M12** — Responsive layout (remove caps, add breakpoints)
+3. **M13** — Pulse rebuild with ntcharts
+4. **M14** — Workspace surface + embedded AI panel
+5. **M15** — Filesystem skills + editable prompts + session
+   persistence + Test connection
+6. **M16** — Guided onboarding + contextual prompts
 
-- `go test ./...` passes.
-- `go run ./cmd/sparkle` launches the TUI.
-- User can create/select workspace.
-- User can create a spark.
-- User can promote a spark into a project.
-- User can view/edit project fields.
-- Dashboard shows spark/project counts and at least one tracking chart.
-- Themes can be switched.
-- README contains roadmap and architecture overview.
-- AI provider interface and mock provider exist.
+Each milestone must end with `go test ./...` green and a smoke pass at
+60×20, 100×30, and 200×60 terminals.
+
+## Anti-patterns to refuse
+
+If a task asks you to:
+
+- Add a top-level "AI" tab → **refuse**, embed it in Workspace.
+- Render a chart with `strings.Repeat` → **refuse**, use ntcharts.
+- Hardcode a `maxAppWidth` or `maxAppHeight` → **refuse**, use
+  breakpoints.
+- Add a `SkillSomething Skill = "something"` constant in `domain/` →
+  **refuse**, author a `.sparkle/skills/something.md` instead.
+- Block `Update` on disk or HTTP → **refuse**, return a `tea.Cmd`.
+- Silently overwrite a user file → **refuse**, propose `<edit>` and
+  ask.
+- Skip tests "because the milestone is small" → **refuse**, write the
+  test.
+
+## What to push back on
+
+If the user asks for cloud sync, team features, plugin marketplace,
+Pomodoro timer, or AI fine-tuning — point at the exclusions list in
+`product-spec.md` and ask for confirmation before touching scope.

@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/viphase/sparkle/internal/config"
-	"github.com/viphase/sparkle/internal/domain"
 	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/workspace"
 )
@@ -17,10 +16,10 @@ func newTestRoot() Root {
 	return NewRoot(workspace.Workspace{}, nil)
 }
 
-func TestRootInitialRouteIsDashboard(t *testing.T) {
+func TestRootInitialRouteIsPulse(t *testing.T) {
 	r := newTestRoot()
-	if r.route != RouteDashboard {
-		t.Errorf("initial route = %v, want Dashboard", r.route)
+	if r.route != RoutePulse {
+		t.Errorf("initial route = %v, want Pulse (prime tab)", r.route)
 	}
 }
 
@@ -33,28 +32,31 @@ func TestRootUsesConfiguredTheme(t *testing.T) {
 
 func TestRootTabSwitchesRoute(t *testing.T) {
 	r := newTestRoot()
+	// Initial route is Pulse (prime); tab should advance to Workspace.
 	next, _ := r.Update(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(Root).route
-	if got != RouteProjects {
-		t.Errorf("after tab: route = %v, want Projects", got)
+	if got != RouteWorkspace {
+		t.Errorf("after tab from Pulse: route = %v, want Workspace", got)
 	}
 }
 
 func TestRootShiftTabGoesBack(t *testing.T) {
 	r := newTestRoot()
+	// Initial route is Pulse (prime); shift+tab wraps to Settings (last tab).
 	next, _ := r.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	got := next.(Root).route
-	if got != RouteSparks {
-		t.Errorf("after shift+tab from Dashboard: route = %v, want Sparks", got)
+	if got != RouteSettings {
+		t.Errorf("after shift+tab from Pulse: route = %v, want Settings", got)
 	}
 }
 
 func TestRootNumberJumps(t *testing.T) {
 	r := newTestRoot()
-	next, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	// Tab order: 1=Pulse, 2=Workspace, 3=Settings.
+	next, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	got := next.(Root).route
-	if got != RouteProjects {
-		t.Errorf("after '4': route = %v, want Projects", got)
+	if got != RouteWorkspace {
+		t.Errorf("after '2': route = %v, want Workspace", got)
 	}
 }
 
@@ -78,48 +80,21 @@ func TestRootQuitKey(t *testing.T) {
 	}
 }
 
-// When sparks is in text-input mode the global key handler must yield 'q' to the
-// input so the user can type a 'q' in their spark title.
-func TestRootGlobalKeysSuppressedInSparkForm(t *testing.T) {
+func TestRootAPIKeyChangedUpdatesStatus(t *testing.T) {
 	r := newTestRoot()
-	// Jump to the sparks tab.
-	jumped, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	r = jumped.(Root)
-	// Press 'n' to open the form.
-	opened, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	r = opened.(Root)
-	// Press 'q' — should NOT quit.
-	next, cmd := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	if cmd != nil {
-		// cmd may be the textinput's Blink cmd, which is fine, just must not be Quit.
-		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
-			t.Error("'q' inside spark form should not quit")
-		}
-	}
-	if next.(Root).route != RouteSparks {
-		t.Errorf("route should still be Sparks; got %v", next.(Root).route)
+	next, _ := r.Update(msgs.APIKeyChangedMsg{Key: "sk-ant-test", Model: "claude-sonnet-4-6"})
+	view := next.(Root).status.View(80)
+	if !strings.Contains(view, "claude") {
+		t.Errorf("status bar should show 'claude' after API key set; got %q", view)
 	}
 }
 
-func TestRootGlobalKeysSuppressedInSparkSearch(t *testing.T) {
+func TestRootSparkPromotedStaysOnWorkspace(t *testing.T) {
 	r := newTestRoot()
-	jumped, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	r = jumped.(Root)
-	// Populate sparks so '/' is not a no-op.
-	populated, _ := r.Update(msgs.SparksLoadedMsg{Items: []domain.Spark{
-		{ID: "s1", Title: "Idea", Status: "new"},
-	}})
-	r = populated.(Root)
-	opened, _ := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	r = opened.(Root)
-
-	next, cmd := r.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	if cmd != nil {
-		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
-			t.Error("'q' inside spark search should not quit")
-		}
-	}
-	if next.(Root).route != RouteSparks {
-		t.Errorf("route should still be Sparks; got %v", next.(Root).route)
+	// Start on pulse.
+	r.route = RoutePulse
+	next, _ := r.Update(msgs.SparkPromotedMsg{})
+	if next.(Root).route != RouteWorkspace {
+		t.Errorf("after SparkPromotedMsg: route = %v, want Workspace", next.(Root).route)
 	}
 }

@@ -78,8 +78,42 @@ type anthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// Ping validates the API key and reachability with a minimal messages request.
+func (p *AnthropicProvider) Ping(ctx context.Context) error {
+	body := anthropicRequest{
+		Model:     p.model,
+		MaxTokens: 1,
+		Messages:  []anthropicMessage{{Role: "user", Content: "ping"}},
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal ping: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicAPIURL, bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("build ping: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", p.apiKey)
+	httpReq.Header.Set("anthropic-version", anthropicAPIVersion)
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	defer resp.Body.Close()
+	respBytes, _ := io.ReadAll(resp.Body)
+	var apiResp anthropicResponse
+	if err := json.Unmarshal(respBytes, &apiResp); err != nil {
+		return fmt.Errorf("ping decode: %w", err)
+	}
+	if apiResp.Error != nil {
+		return fmt.Errorf("%s: %s", apiResp.Error.Type, apiResp.Error.Message)
+	}
+	return nil
+}
+
 func (p *AnthropicProvider) Complete(ctx context.Context, req domain.CompletionRequest) (domain.CompletionResponse, error) {
-	system := BuildSystemPrompt(req.Mode, req.Context)
+	system := BuildSystemPrompt(req.Mode, req.Context, req.Skill)
 
 	var msgs []anthropicMessage
 	for _, m := range req.Messages {
@@ -143,8 +177,15 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req domain.CompletionR
 	}
 	full := strings.Join(textParts, "\n")
 	text, edits := parseProposedEdits(full)
+	text, quizzes := parseQuizBlocks(text)
+	cleanText, stageComplete := parseStageComplete(text)
 
-	return domain.CompletionResponse{Text: text, ProposedEdits: edits}, nil
+	return domain.CompletionResponse{
+		Text:          cleanText,
+		ProposedEdits: edits,
+		Quizzes:       quizzes,
+		StageComplete: stageComplete,
+	}, nil
 }
 
 // editBlockRE matches fenced edit blocks:
@@ -195,13 +236,42 @@ func truncateDesc(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// BuildSystemPrompt returns the system-level instruction based on mode and context.
-func BuildSystemPrompt(mode domain.Mode, ctx domain.ProjectContext) string {
+// BuildSystemPrompt returns the system-level instruction based on mode, context,
+// and an optional skill specialisation. The skill fragment is injected between
+// the base prompt and the mode-specific block.
+func BuildSystemPrompt(mode domain.Mode, ctx domain.ProjectContext, skills ...domain.Skill) string {
+	var skill domain.Skill
+	if len(skills) > 0 {
+		skill = skills[0]
+	}
+
 	var b strings.Builder
 	b.WriteString("You are Sparkle's local project guide.\n")
 	b.WriteString("Help turn rough ideas into practical, structured project work.\n")
 	b.WriteString("Be concise. Ask one clarifying question at a time when context is thin.\n")
 	b.WriteString("Never invent facts. Never write files without explicit permission.\n\n")
+
+	b.WriteString("QUIZ FORMAT — when a question has enumerable answers, wrap it in a quiz block\n")
+	b.WriteString("so the UI displays it as a clickable widget the user answers with a single key:\n")
+	b.WriteString("<quiz>\n")
+	b.WriteString("Your question here?\n")
+	b.WriteString("a) First option\n")
+	b.WriteString("b) Second option\n")
+	b.WriteString("c) Third option\n")
+	b.WriteString("d) Something else — describe\n")
+	b.WriteString("</quiz>\n")
+	b.WriteString("Rules: at most one quiz per response; always include a free-text fallback;\n")
+	b.WriteString("never embed a quiz inside an <edit> block.\n\n")
+
+	b.WriteString("PIPELINE STAGES — the conversation flows through: clarify → structure → challenge → architect → expand → finalize.\n")
+	b.WriteString("When you have gathered sufficient information for the current stage and the user should advance, add <stage-complete /> at the very end of your response.\n")
+	b.WriteString("Do not add <stage-complete /> prematurely — only when you truly have enough to move forward.\n\n")
+
+	// Inject skill-specific prompt fragment between base and mode instructions.
+	if frag := skill.SystemFragment(); frag != "" {
+		b.WriteString(frag)
+		b.WriteString("\n\n")
+	}
 
 	switch mode {
 	case domain.ModeClarify:
@@ -229,6 +299,27 @@ func BuildSystemPrompt(mode domain.Mode, ctx domain.ProjectContext) string {
 		writeField(&b, "Architecture", ctx.Architecture)
 		writeField(&b, "Target audience", ctx.TargetAudience)
 		writeField(&b, "Roadmap", ctx.Roadmap)
+
+		// Tracking data — only included when non-zero so cold-start conversations
+		// are not cluttered with meaningless zeros.
+		if ctx.TodayWords > 0 || ctx.WeekWords > 0 || ctx.Streak > 0 {
+			b.WriteString("\nTracking data (actual workspace activity):\n")
+			if ctx.TodayWords > 0 {
+				b.WriteString(fmt.Sprintf("  Words written today: %d\n", ctx.TodayWords))
+			}
+			if ctx.WeekWords > 0 {
+				b.WriteString(fmt.Sprintf("  Words written this week: %d\n", ctx.WeekWords))
+			}
+			if ctx.Streak > 0 {
+				b.WriteString(fmt.Sprintf("  Active-day streak: %d days\n", ctx.Streak))
+			}
+			if ctx.ActiveDaysWeek > 0 {
+				b.WriteString(fmt.Sprintf("  Active days this week: %d\n", ctx.ActiveDaysWeek))
+			}
+			if ctx.DaysSinceActive > 1 {
+				b.WriteString(fmt.Sprintf("  Days since last activity: %d — consider asking why the project stalled.\n", ctx.DaysSinceActive))
+			}
+		}
 	}
 
 	return strings.TrimSpace(b.String())

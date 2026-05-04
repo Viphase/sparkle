@@ -48,6 +48,16 @@ func (f *fakeLoader) NotesPath(id string) string {
 	return "/tmp/" + id + "/notes.md"
 }
 
+func (f *fakeLoader) DeleteProject(id string) error {
+	for i, item := range f.items {
+		if item.ID == id {
+			f.items = append(f.items[:i], f.items[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 func newModel(loader Loader) *Model {
 	return New(theme.PastelDark(), loader).(*Model)
 }

@@ -16,7 +16,7 @@ import (
 
 func TestDashboardRendersTrackingLoadedStats(t *testing.T) {
 	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.Local)
-	m := Model{
+	m := &Model{
 		theme: theme.PastelDark(),
 		now: func() time.Time {
 			return now
@@ -40,7 +40,7 @@ func TestDashboardRendersTrackingLoadedStats(t *testing.T) {
 		},
 	}})
 
-	got := next.(Model)
+	got := next.(*Model)
 	if got.stats.TodayWords != 120 {
 		t.Fatalf("TodayWords=%d, want 120", got.stats.TodayWords)
 	}
@@ -50,5 +50,54 @@ func TestDashboardRendersTrackingLoadedStats(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dashboard view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestDashboardScrollClampsToContent(t *testing.T) {
+	m := &Model{
+		theme: theme.PastelDark(),
+		now:   time.Now,
+	}
+	// Scroll way past content.
+	m.scroll = 9999
+	// View should clamp scroll so the detail section still shows content.
+	view := m.View(90, 30)
+	if view == "" {
+		t.Fatal("view should not be empty after excess scroll")
+	}
+	// After View, scroll should have been clamped.
+	if m.scroll > 100 {
+		t.Fatalf("scroll not clamped; got %d", m.scroll)
+	}
+}
+
+func TestDashboardLogoCache(t *testing.T) {
+	m := &Model{
+		theme: theme.PastelDark(),
+		now:   time.Now,
+	}
+	// First render at width 90 — should populate cache keyed to logoW=86.
+	m.View(90, 30)
+	if m.cachedLogoW == 0 {
+		t.Fatal("logo cache should be populated after View")
+	}
+	firstLogoW := m.cachedLogoW
+
+	// Second render at same width — cachedLogoW must be unchanged.
+	m.View(90, 30)
+	if m.cachedLogoW != firstLogoW {
+		t.Fatalf("cachedLogoW changed on same-width render: %d → %d", firstLogoW, m.cachedLogoW)
+	}
+
+	// Narrow render switches to compact logo (logoW=0 sentinel).
+	m.View(40, 30)
+	if m.cachedLogoW != 0 {
+		t.Fatalf("expected cachedLogoW=0 for narrow render, got %d", m.cachedLogoW)
+	}
+
+	// Back to wide — cache key changes back.
+	m.View(90, 30)
+	if m.cachedLogoW != firstLogoW {
+		t.Fatalf("expected cachedLogoW=%d after returning to wide, got %d", firstLogoW, m.cachedLogoW)
 	}
 }

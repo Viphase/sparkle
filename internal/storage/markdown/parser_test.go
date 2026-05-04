@@ -109,3 +109,73 @@ func TestEncodeFrontmatterOnly(t *testing.T) {
 		t.Errorf("unexpected output: %q", out)
 	}
 }
+
+// ── BodySection (L2) ──────────────────────────────────────────────────────────
+
+const sampleProjectBody = `# Description
+
+A local-first TUI for managing sparks and projects.
+
+# Architecture
+
+Clean Go with Bubble Tea at the edge.
+
+## Sub-heading
+
+Sub-heading content preserved by goldmark.
+
+# Roadmap
+
+- M11: settings
+- M12: responsive layout
+`
+
+func TestBodySectionDescription(t *testing.T) {
+	got := BodySection(sampleProjectBody, "Description")
+	if !strings.Contains(got, "local-first TUI") {
+		t.Errorf("expected description content, got %q", got)
+	}
+	// Must NOT bleed into Architecture.
+	if strings.Contains(got, "Architecture") {
+		t.Errorf("section bled into next heading: %q", got)
+	}
+}
+
+func TestBodySectionArchitecture(t *testing.T) {
+	got := BodySection(sampleProjectBody, "Architecture")
+	if !strings.Contains(got, "Bubble Tea") {
+		t.Errorf("expected architecture content, got %q", got)
+	}
+	// Sub-headings inside the section should be included.
+	if !strings.Contains(got, "Sub-heading content preserved") {
+		t.Errorf("sub-heading content dropped: %q", got)
+	}
+}
+
+func TestBodySectionRoadmap(t *testing.T) {
+	got := BodySection(sampleProjectBody, "Roadmap")
+	if !strings.Contains(got, "M11") {
+		t.Errorf("expected roadmap items, got %q", got)
+	}
+}
+
+func TestBodySectionMissing(t *testing.T) {
+	got := BodySection(sampleProjectBody, "Nonexistent")
+	if got != "" {
+		t.Errorf("expected empty string for missing section, got %q", got)
+	}
+}
+
+func TestBodySectionCaseInsensitive(t *testing.T) {
+	got := BodySection(sampleProjectBody, "DESCRIPTION")
+	if !strings.Contains(got, "local-first TUI") {
+		t.Errorf("case-insensitive match failed, got %q", got)
+	}
+}
+
+func TestBodySectionEmpty(t *testing.T) {
+	got := BodySection("", "Description")
+	if got != "" {
+		t.Errorf("expected empty on empty body, got %q", got)
+	}
+}

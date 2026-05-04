@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // MessageRole identifies who authored an AI guide message.
 type MessageRole string
 
@@ -51,6 +53,19 @@ func (m Mode) Label() string {
 	return string(m)
 }
 
+// QuizChoice is one lettered option in a multiple-choice quiz.
+type QuizChoice struct {
+	Key  string // "a", "b", "c", "d" …
+	Text string // the choice description
+}
+
+// Quiz is a multiple-choice question the AI embeds in a response to speed up
+// decisions and reduce user cognitive load. The user answers with a single key.
+type Quiz struct {
+	Question string
+	Choices  []QuizChoice
+}
+
 // ProposedEdit is a file change the AI guide wants to make, held for explicit
 // user approval before any write happens.
 type ProposedEdit struct {
@@ -72,6 +87,14 @@ type ProjectContext struct {
 	TargetAudience string
 	Roadmap        string
 	Notes          string
+
+	// Tracking fields (M10) — populated when stats are available for the project.
+	// Zero values mean "no tracking data yet"; providers must treat them as absent.
+	TodayWords    int
+	WeekWords     int
+	Streak        int // current consecutive active-day streak
+	ActiveDaysWeek int
+	DaysSinceActive int // 0 = active today; -1 = no activity ever recorded
 }
 
 // CompletionRequest is the provider-neutral request shape for AI guide calls.
@@ -79,10 +102,70 @@ type CompletionRequest struct {
 	Messages []Message
 	Context  ProjectContext
 	Mode     Mode
+	Skill    Skill // optional specialisation — injected into system prompt
+}
+
+// ArtifactStatus records which project artifacts have been filled in.
+// Each field is true when the corresponding section has content.
+type ArtifactStatus struct {
+	Description    bool
+	Architecture   bool
+	TargetAudience bool
+	Roadmap        bool
+	Notes          bool
+	Flaws          bool
+	Plan           bool
+}
+
+// ArtifactStatusFromContext derives artifact status from a ProjectContext.
+// Fields tracked only inside the AI screen (Flaws, Plan) stay false and are
+// updated separately by the screen.
+func ArtifactStatusFromContext(ctx ProjectContext) ArtifactStatus {
+	return ArtifactStatus{
+		Description:    strings.TrimSpace(ctx.Description) != "",
+		Architecture:   strings.TrimSpace(ctx.Architecture) != "",
+		TargetAudience: strings.TrimSpace(ctx.TargetAudience) != "",
+		Roadmap:        strings.TrimSpace(ctx.Roadmap) != "",
+		Notes:          strings.TrimSpace(ctx.Notes) != "",
+	}
+}
+
+// FilledCount returns how many of the 7 artifacts have content.
+func (a ArtifactStatus) FilledCount() int {
+	n := 0
+	if a.Description {
+		n++
+	}
+	if a.Architecture {
+		n++
+	}
+	if a.TargetAudience {
+		n++
+	}
+	if a.Roadmap {
+		n++
+	}
+	if a.Notes {
+		n++
+	}
+	if a.Flaws {
+		n++
+	}
+	if a.Plan {
+		n++
+	}
+	return n
 }
 
 // CompletionResponse is the provider-neutral response shape.
 type CompletionResponse struct {
 	Text          string
 	ProposedEdits []ProposedEdit
+	// Quizzes holds any multiple-choice questions the AI embedded in the
+	// response. They are stripped from Text and held here for the UI to display
+	// as interactive widgets.
+	Quizzes []Quiz
+	// StageComplete signals that the AI considers the current pipeline stage
+	// done and the conversation should advance to the next mode.
+	StageComplete bool
 }

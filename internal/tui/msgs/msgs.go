@@ -56,3 +56,33 @@ type TrackingLoadedMsg struct {
 type MouseToggledMsg struct {
 	Enabled bool
 }
+
+// ProjectContextMsg is emitted when a specific project should become the
+// active AI guide context (e.g. just after spark promotion).
+type ProjectContextMsg struct {
+	Project domain.Project
+}
+
+// SkillChangedMsg is emitted by the settings screen when the user changes the
+// active AI skill. The root and AI screen listen for it.
+type SkillChangedMsg struct {
+	Skill string // matches a domain.Skill constant; "" = none
+}
+
+// APIKeyChangedMsg is emitted by the settings screen when the user saves a new
+// Anthropic API key. Root swaps the AI provider.
+type APIKeyChangedMsg struct {
+	Key   string
+	Model string
+}
+
+// PingResultMsg is the result of a "Test connection" ping from settings.
+type PingResultMsg struct {
+	Err error // nil = success
+}
+
+// SkillDefsLoadedMsg carries filesystem-loaded skill definitions to the
+// settings screen so the skill picker shows user-authored skills.
+type SkillDefsLoadedMsg struct {
+	Skills []domain.SkillDef
+}

@@ -1,181 +1,267 @@
-# Sparkle Architecture
+# Sparkle Architecture — v2
 
-## Core Principle
+Read [`v2-vision.md`](v2-vision.md) first. This file describes the
+package layout, layering, async pattern, and routing for v2.
 
-Separate domain, storage, TUI, tracking services, and AI.
+## Core principle (unchanged)
 
-Tracking has no standalone TUI route. All in-app tracking summaries and charts
-render inside the Dashboard.
+Separate domain, storage, TUI, tracking services, and AI. Domain logic
+must not import Bubble Tea, Lip Gloss, or filesystem implementation
+details.
 
-The domain layer must not import Bubble Tea, Lip Gloss, or filesystem implementation details.
-
-## Proposed Tree
+## Package layout
 
 ```txt
 cmd/sparkle/
-  main.go
+  main.go                  // workspace bootstrap, first-run wizard launcher
 
 internal/
   domain/
     workspace.go
     spark.go
     project.go
-    tracking.go
-    ai.go
+    tracker.go
+    ai.go                  // Provider, CompletionRequest/Response, Mode, Quiz, ProposedEdit
+    skill.go               // Skill struct (file-loaded, no hardcoded constants)
 
   storage/
     markdown/
-      store.go
+      store.go             // facade
       parser.go
       writer.go
-
-  tui/
-    root.go            // root model, routing, global messages, command dispatch
-    commands.go        // shared tea.Cmd helpers
-    screens/
-      dashboard/
-      sparks/
-      projects/
-      projectdetail/
-      ai/
-      settings/
-    components/
-      tabs/
-      cards/
-      chart/
-      modal/
-      form/
-      statusbar/
-    theme/
-      theme.go
-      palettes.go
+      project.go
+      spark.go
+      events.go
+      sessions.go          // NEW: AI conversation log (.sparkle/sessions/)
+      skills.go            // NEW: load .sparkle/skills/*.md
+      themes.go            // NEW: load .sparkle/themes/*.toml
 
   tracker/
-    scanner.go         // I/O: walk workspace, read mtimes, count words
-    stats.go           // pure: streaks, velocity, daily/weekly aggregates
+    scanner.go             // walks workspace, reads mtimes, computes deltas
+    watcher.go             // NEW: debounced rescan during a session
+    stats.go               // pure: streaks, velocity, daily/weekly aggregates
 
   ai/
-    provider.go
+    provider.go            // package-level helpers
     mock_provider.go
-    prompt_builder.go
+    anthropic_provider.go
+    system_prompt.go       // NEW: BuildSystemPrompt extracted to its own file
+    quiz.go
+    stage.go
+    edits.go               // NEW: parseProposedEdits + diff helpers
 
   config/
-    config.go            // .sparkle/config.toml defaults, load, first-run ensure
+    config.go              // .sparkle/config.toml load/save with API-key field
+    setup.go               // NEW: first-run wizard model
+
+  tui/
+    root.go                // root model, routing, global messages
+    commands.go            // shared tea.Cmd helpers
+    msgs/                  // typed message envelopes
+    surfaces/              // RENAMED from screens/: top-level surfaces
+      workspace/           // NEW: spark+project unified view (replaces sparks+projects)
+        workspace.go
+        rail.go            // left rail of items
+        detail.go          // structured fields + section preview
+        editor.go          // inline textarea for project.md sections
+        ai_panel.go        // embedded AI conversation (replaces ai/ screen)
+      pulse/               // RENAMED from dashboard/: ntcharts-driven dashboard
+        pulse.go
+        cards.go
+        weekly_chart.go    // ntcharts BarChart wrapper
+        heatmap.go         // ntcharts Heatmap wrapper
+        trend.go           // ntcharts Sparkline wrapper
+        pipeline_row.go    // per-project pipeline row
+    modals/                // NEW: modal overlays
+      settings/
+        settings.go
+        provider_section.go
+        skills_section.go
+        tracking_section.go
+        appearance_section.go
+      help/
+        help.go            // context-aware ? overlay
+      capture/
+        capture.go         // n new spark
+      review/
+        review.go          // <edit> diff approval
+    components/            // shared widgets
+      chrome/              // NEW: top app strip
+      modebar/             // NEW: 1 Workspace / 2 Pulse switcher
+      statusbar/
+      logo/
+      rail/                // NEW: left list pane
+      card/                // NEW: hero stat card
+      chart/               // NEW: ntcharts wrappers
+      pipeline/            // NEW: 6-stage indicator
+      diff/                // NEW: markdown diff renderer
+      input/
+      textarea/            // NEW: multi-line markdown editor
+      modal/               // NEW: centered overlay
+    theme/
+      theme.go
+      palettes.go          // built-in: pastel-dark, pastel-light, nova
+      gradient.go
+      loader.go            // NEW: load .sparkle/themes/*.toml
+
+  workspace/
+    workspace.go           // path resolution, bootstrap, .sparkle/ scaffolding
 ```
+
+Notes:
+
+- `internal/tui/screens/` is renamed `internal/tui/surfaces/` to
+  reflect that the v2 model is two surfaces, not five screens.
+- `internal/tui/screens/ai/` is **removed**; the embedded AI panel
+  lives in `surfaces/workspace/ai_panel.go`.
+- `internal/tui/screens/sparks/` and
+  `internal/tui/screens/projects/` are **removed**; their
+  responsibilities fold into `surfaces/workspace/`.
+- `internal/tui/screens/dashboard/` is **renamed** to
+  `surfaces/pulse/`.
+- `internal/tui/screens/settings/` is **removed**; settings becomes a
+  modal at `internal/tui/modals/settings/`.
 
 ## Layers
 
 ### domain
 
-Contains business entities and pure logic:
-- Workspace
-- Spark
-- Project
-- TrackingEvent
-- Milestone
-- Task
-- AI request/response abstractions
+Business entities and pure logic:
+- `Workspace`, `Spark`, `Project`
+- `TrackingEvent`, `TrackingStats`, `Mode`
+- `Quiz`, `ProposedEdit`, `CompletionRequest`, `CompletionResponse`
+- `Skill` — struct with `Key, Label, Description, Body string` (no
+  hardcoded constants)
+- `Provider interface` with `Complete()` and `Ping()`
 
-No terminal rendering. No file paths unless represented as domain data.
+No filesystem, no rendering, no networking. `Skill` is a value type —
+loading happens in storage.
 
 ### storage
 
-A single `markdown.Store` exposes per-entity methods (LoadWorkspace, ListSparks, SaveSpark, LoadProject, SaveProject, AppendEvent, etc.). Internal `parser.go` and `writer.go` are helpers, not separate package boundaries. Split per-entity stores out later only if any one of them grows past ~300 LOC.
+Single `markdown.Store` exposing per-entity methods. Internal helpers
+(`parser.go`, `writer.go`) are not separate package boundaries.
 
-Responsibilities:
-- parse frontmatter (YAML)
-- write Markdown atomically (temp + rename)
-- preserve unknown frontmatter fields and user-written body
-- maintain `.sparkle/index.json` as derived cache
-- rebuild index from raw Markdown when missing or invalid
+New for v2:
+- `sessions.go` — append-only `.sparkle/sessions/<project_id>.jsonl`
+- `skills.go` — read `.sparkle/skills/*.md`, parse frontmatter + body
+- `themes.go` — read `.sparkle/themes/*.toml`, parse to `Theme` struct
 
-All frontmatter carries `schema_version: 1`. Bump and migrate when shape changes.
+All writes are atomic (temp + rename). All frontmatter carries
+`schema_version: 1`.
 
 ### tracker
 
-Two files, two concerns:
-- `scanner.go` walks the workspace, reads mtimes, computes word deltas, appends events. I/O-heavy; tested via temp dirs.
-- `stats.go` is pure: takes events in, returns daily totals, weekly activity, streaks, velocity. Trivially unit-tested.
-
-### tui
-
-Bubble Tea root model and screens:
-- `root.go` owns the route, the selected workspace, loaded summaries, and the status-bar error queue.
-- Each screen has its own model in `screens/<name>/`.
-- Shared widgets live in `components/`. Theme tokens live in `theme/`.
-
-No raw business calculations inside views. No storage calls inside `View`. No blocking I/O in `Update`.
+Two concerns:
+- `scanner.go` (I/O) walks the workspace, reads mtimes, computes
+  word deltas, appends events.
+- `watcher.go` (I/O, NEW) runs on a debounce during the session,
+  triggered by file-write Cmds, never inside `Update`.
+- `stats.go` (pure) takes events in, returns daily totals, weekly
+  activity, streaks, velocity, 12-week trend, pipeline stage.
 
 ### ai
 
-Provider abstraction, mock provider, prompt builder. Real API integration is deferred — see roadmap M6.
+- `Provider` interface implementations: `MockProvider`,
+  `AnthropicProvider`.
+- `system_prompt.go` composes base + skill + mode + context +
+  tracking.
+- `quiz.go`, `stage.go`, `edits.go` parse the response blocks.
 
-## Bubble Tea Rules
+### tui
 
-Use:
-- `Model`, `Update`, `View`
-- typed messages
-- `tea.Cmd` for all I/O (loading, saving, scanning, AI calls)
+Bubble Tea root + surfaces + modals + components.
+
+Root owns:
+- the route (Workspace or Pulse)
+- the workspace + store
+- the loaded summaries
+- the modal stack (settings / help / capture / review)
+- the global status-bar error queue
+
+Surfaces own their own model. Components are pure renderers
+(no `tea.Cmd`s inside).
+
+### config
+
+- `config.toml` loader + saver
+- `setup.go` (NEW) — first-run wizard model. Runs before the main TUI
+  if `.sparkle/config.toml` is missing.
+
+## Bubble Tea rules (unchanged)
+
+Use `Model`, `Update`, `View`, typed messages, `tea.Cmd` for I/O.
 
 Avoid:
 - blocking disk I/O in `Update`
 - direct goroutine management in screen code
 - storage calls inside `View`
-- duplicated state across screens
+- duplicated state across surfaces
 
-## Async Pattern
+## Async pattern (unchanged)
 
-Every `tea.Cmd` returns a typed message. I/O errors flow through one envelope so the status bar handles them uniformly:
+Every `tea.Cmd` returns a typed message. I/O errors flow through one
+envelope:
 
 ```go
 type ErrorMsg struct {
-    Source string // "load-workspace", "save-spark", ...
+    Source string
     Err    error
-}
-
-type LoadWorkspaceMsg struct {
-    Workspace domain.Workspace
-}
-
-func LoadWorkspaceCmd(path string, store WorkspaceStore) tea.Cmd {
-    return func() tea.Msg {
-        ws, err := store.Load(path)
-        if err != nil {
-            return ErrorMsg{Source: "load-workspace", Err: err}
-        }
-        return LoadWorkspaceMsg{Workspace: ws}
-    }
 }
 ```
 
-The root model's `Update` handles `ErrorMsg` once, pushing to the status bar. Per-screen success messages stay narrow.
+The root model handles `ErrorMsg` once, pushing to the status bar.
 
 ## Routing
 
-Routes:
-- dashboard
-- sparks
-- projects
-- ai
-- settings
+Two top-level routes:
+- `RouteWorkspace`
+- `RoutePulse`
 
-Tracking does not appear as its own primary-navigation route. The Dashboard owns
-the tracking panel, while the pure tracking package remains separate from Bubble
-Tea.
+Modals stack on top of the active route; pressing `esc` pops the top
+modal. Modals are: `Settings`, `Help`, `Capture`, `Review`.
 
-Workspace selection is resolved before Bubble Tea starts through `$SPARKLE_HOME`
-or `--workspace <path>`. Settings displays the active workspace and loaded
-config; richer in-app switching can land later.
+The root maintains a `[]Modal` stack. The active modal absorbs all
+keystrokes except `esc` (close), `ctrl+c` (quit), and globals it
+explicitly forwards.
+
+## Modal contract
+
+```go
+type Modal interface {
+    Init() tea.Cmd
+    Update(tea.Msg) (Modal, tea.Cmd)
+    View(width, height int) string
+    Title() string
+}
+```
+
+Modals render centered with a backdrop. The backdrop is the parent
+surface dimmed (lipgloss `Faint(true)`), painted once and cached on
+the root.
+
+## Workspace bootstrap
+
+`internal/workspace/workspace.go` resolves the workspace root from:
+1. `--workspace <path>` CLI flag
+2. `SPARKLE_HOME` env var
+3. `~/sparkle` (default)
+
+If the workspace does not contain `.sparkle/config.toml`, the
+first-run wizard runs in a separate Bubble Tea program before the
+main TUI starts. After the wizard exits, the main TUI launches with
+the wizard's output.
 
 ## Performance
 
 For fewer than 100 projects:
-- load project summaries on startup
-- lazy-load full Markdown content on selection
-- cache computed stats
-- update indexes after writes
-- debounce tracking writes
-- avoid full workspace rescans on every keypress
+- Load summaries on startup (lazy-load full Markdown on selection).
+- Cache computed stats.
+- Update indexes after writes.
+- Debounce tracking scans (≥ 2s idle).
+- Avoid full workspace rescans on every keypress.
+- ntcharts canvases recreated on resize only.
+- Logo re-rendered on resize only (cached by width).
 
 ## Safety
 
@@ -183,4 +269,13 @@ Storage writes must:
 - be atomic (temp file + rename)
 - preserve unknown frontmatter fields
 - preserve user-written Markdown body when editing frontmatter
-- never overwrite a file whose on-disk `updated_at` is newer than the in-memory copy without surfacing a conflict
+- never overwrite a file whose on-disk `updated_at` is newer than the
+  in-memory copy without surfacing a conflict
+
+## Removed v1 patterns
+
+- Hardcoded `maxAppWidth` / `maxAppHeight` constants.
+- Tab-based five-route navigation.
+- AI as a sibling screen.
+- Hand-rolled chart functions.
+- `Skill` as Go constants.

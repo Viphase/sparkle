@@ -43,6 +43,16 @@ func (f *fakeSaver) ListSparks() ([]domain.Spark, error) {
 	return out, nil
 }
 
+func (f *fakeSaver) DeleteSpark(id string) error {
+	for i, s := range f.saved {
+		if s.ID == id {
+			f.saved = append(f.saved[:i], f.saved[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 func newModel(saver Saver) *Model {
 	return New(theme.PastelDark(), saver).(*Model)
 }

@@ -50,6 +50,16 @@ func run(args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
+	// Seed built-in skills and the default system prompt on first launch.
+	// These writes are best-effort; a failure here should not block the app.
+	if err := markdown.SeedBuiltinSkills(ws.Root); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: seed skills: %v\n", err)
+	}
+	if err := markdown.SeedSystemPrompt(ws.Root); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: seed system prompt: %v\n", err)
+	}
+
 	store := markdown.NewStore(ws.Root)
 
 	p := tea.NewProgram(tui.NewRootWithConfig(ws, store, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())

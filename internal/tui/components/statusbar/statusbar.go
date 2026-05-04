@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	defaultHint = "tab nav · 1-5 tabs · ? keys · q quit"
-	helpHint    = "tab/shift+tab tabs · 1-5 jump · n new spark · e edit · a archive · / search · h archived · g/G first/last · q quit"
+	defaultHint = "tab  switch surface  ·  ?  help  ·  q  quit"
+	helpHint    = "tab / shift+tab  switch  ·  1-3  jump  ·  ?  this help  ·  q  quit"
 )
 
 type Model struct {
@@ -19,11 +19,21 @@ type Model struct {
 	info  string
 	err   string
 	help  bool
+	// hint is the contextual key reference for the current surface.
+	// It is shown after a separator when info == "" or matches defaultHint,
+	// so transient status messages (set via SetInfo) take precedence but
+	// surface keys come back automatically afterwards.
+	hint string
 }
 
 func New(t theme.Theme) Model {
 	return Model{theme: t, info: defaultHint}
 }
+
+// SetHint replaces the surface-specific key hint. Pass the empty string to
+// fall back to the global default. This is sticky — it survives until the next
+// SetHint call, while SetInfo only displays a transient message.
+func (m Model) SetHint(s string) Model { m.hint = s; return m }
 
 func (m Model) WithTheme(t theme.Theme) Model { m.theme = t; return m }
 
@@ -53,6 +63,16 @@ func (m Model) SetError(source string, err error) Model {
 	return m
 }
 
+// HasError reports whether an error is currently shown.
+func (m Model) HasError() bool { return m.err != "" }
+
+// ClearError dismisses the current error and returns to the default hint.
+func (m Model) ClearError() Model {
+	m.err = ""
+	m.info = defaultHint
+	return m
+}
+
 func (m Model) Clear() Model {
 	m.info = defaultHint
 	m.err = ""
@@ -73,12 +93,20 @@ func (m Model) View(width int) string {
 			Bold(true).
 			Padding(0, 1).
 			Render(" error ")
-		return bar.Render(m.truncate(width, badge+" "+
-			theme.Fg(m.theme, m.theme.Danger).Render(m.err)))
+		dismiss := theme.Fg(m.theme, m.theme.Subtle).Render("  esc to dismiss")
+		msg := badge + " " + theme.Fg(m.theme, m.theme.Danger).Render(m.err) + dismiss
+		return bar.Render(m.truncate(width, msg))
 	}
-	text := m.info
-	if m.help {
+	var text string
+	switch {
+	case m.help:
 		text = helpHint
+	case m.info != "" && m.info != defaultHint && m.hint != "":
+		text = m.info + "    " + theme.Fg(m.theme, m.theme.Subtle).Render(m.hint)
+	case m.hint != "":
+		text = m.hint
+	default:
+		text = m.info
 	}
 	return bar.Foreground(m.theme.Muted).Render(m.truncate(width, text))
 }

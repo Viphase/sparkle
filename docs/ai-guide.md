@@ -1,128 +1,105 @@
-# Sparkle AI Guide
+# Sparkle AI Guide — v2
 
-## What Sparkle AI Is
+Read [`v2-vision.md`](v2-vision.md) and [`product-spec.md`](product-spec.md)
+first. This file specifies what the AI mentor *is*, how it integrates
+with the TUI, how skills and prompts are stored, and how the provider
+layer works.
 
-Sparkle AI is not a generic chatbot. It is a **custom-trained, prompt-engineered project development mentor** embedded directly in your workspace. Its only job is to help you turn a rough spark — a half-formed idea — into a fully structured, tracked, living project.
+## What the AI is
 
-It is the opposite of a note-taking tool. It does not passively accept whatever you type. It **interrogates**, **challenges**, **quizzes**, and **coaches** you until your project has:
+Sparkle's AI is a **project development mentor** that lives next to the
+work. It is bound to one project at a time. It does not exist as a
+sibling tab or as a generic chat — it is a panel that shadows the
+selected project in the Workspace view (see `tui-ux.md`).
 
-- a crisp one-paragraph description
-- a realistic architecture
-- an honest list of flaws and downsides
-- identified landmines (risky assumptions that could kill the project)
-- a clearly defined target audience
-- a concrete growth path
-- a step-by-step plan of work
-- a phased roadmap tracked by the app
+Its job is to drive the user from **half-formed spark** to **structured,
+trackable project**. It does this by:
 
-## How the AI Shapes a Project (the Artifact Pipeline)
+1. Asking one good question at a time.
+2. Preferring **structured quizzes** to enumerable answers.
+3. **Challenging** weak assumptions before generating structure.
+4. Proposing **`<edit>` blocks** for every file change, never writing
+   silently.
+5. Tracking **pipeline stage** (clarify → structure → challenge →
+   architect → expand → finalize) and signaling stage transitions.
+6. Reading **tracking data** (words today, streak, days since active)
+   to keep the user honest.
 
-Every project goes through the same pipeline, driven by conversation:
+The AI is not a chatbot. Free-form chat is a **fallback** for when the
+user wants to type something the model didn't ask for.
 
-```
-spark → clarify → structure → challenge → architect → plan → finalize → track
-```
+## The artifact pipeline
 
-The AI does not skip stages. It moves forward only when it has enough signal.
-
-### Stage 1 — Clarify
-
-The AI fires a series of probing questions, one at a time. It never dumps five questions at once.
-
-Examples:
-- "Who actually uses this — you, a team, or strangers on the internet?"
-- "What problem does this solve that nothing else does?"
-- "Why now? What changed that makes this possible or urgent?"
-
-It may use **multiple-choice quizzes** to speed up decisions:
+Every project flows through six stages, driven by conversation:
 
 ```
-What best describes your target user?
-  a) A solo developer managing their own projects
-  b) A small team (2–5 people) sharing a codebase
-  c) A non-technical creator who wants to ship faster
-  d) Something else — tell me
+spark → clarify → structure → challenge → architect → expand → finalize → track
 ```
 
-The user picks a letter or types a free-form answer. The AI adapts its next question to the choice.
+| Stage     | AI behaviour                                                   |
+|-----------|----------------------------------------------------------------|
+| clarify   | One probing question per turn. Quiz preferred. No specs yet.  |
+| structure | Build artifacts one at a time. Ask before moving on.          |
+| challenge | Find the three most dangerous assumptions. Push back.         |
+| architect | Advise on data model, boundaries, async, testing.             |
+| expand    | Go deeper on the user-selected section. No new constraints.   |
+| finalize  | Produce clean Markdown. Wrap every change in an `<edit>` block.|
 
-### Stage 2 — Structure
+The AI does not skip stages. It moves forward only when it has enough
+signal — and asks the user to confirm, never auto-advancing.
 
-The AI helps build the core project artifacts:
+## Tracked artifacts (7)
 
-| Artifact            | Description                                                  |
-|---------------------|--------------------------------------------------------------|
-| **Description**     | One paragraph. What it is, who it is for, why it exists.     |
-| **Architecture**    | How the system works: data flow, components, key choices.    |
-| **Flaws**           | Honest list of known weaknesses in the current plan.         |
-| **Downsides**       | Trade-offs the user is accepting, not hiding.                |
-| **Landmines**       | Risky assumptions that, if wrong, collapse the whole project.|
-| **Target audience** | Specific description of the person this is built for.        |
-| **Growth plan**     | How the project evolves from v1 toward a larger vision.      |
-| **Plan of work**    | Concrete ordered task list for the next sprint or milestone. |
-| **Roadmap**         | Phased milestones aligned with the growth plan.              |
+| Artifact         | Where it lands                                          |
+|------------------|---------------------------------------------------------|
+| description      | `# Description` in `project.md`                         |
+| problem          | `# Problem` in `project.md`                             |
+| audience         | `target_audience` frontmatter + `# Target Audience` body |
+| features         | `# Core Features` in `project.md`                       |
+| architecture     | `# Architecture` in `project.md`                        |
+| roadmap          | `# Roadmap` in `project.md`                             |
+| open questions   | `# Open Questions` in `project.md`                      |
 
-### Stage 3 — Challenge
+The artifact bar at the top of the AI panel reads `artifacts 4/7` and
+shows a checkmark per filled artifact.
 
-Before finalizing anything, the AI plays devil's advocate:
+(v1's "flaws" and "plan" tracked artifacts collapse into "open
+questions" and "roadmap" respectively.)
 
-- "Your architecture assumes users will configure this manually. Most won't. What's your fallback?"
-- "You listed 'fast' as a feature. Compared to what? On whose hardware?"
-- "Who else is building this? Why will yours win?"
+## Conversation modalities
 
-This stage is not optional. It exists to surface problems now instead of after months of work.
+The AI panel accepts user input in three modalities:
 
-### Stage 4 — Architect
+1. **Quiz answer** — single keystroke `a`–`f` or arrow + enter. The
+   selected choice becomes the user's reply.
+2. **Edit approval** — `y` approves, `n` rejects, `tab` cycles between
+   pending edits.
+3. **Free text** — typed reply, `enter` to send.
 
-When the project has enough structure, the AI advises on technical design:
+Whichever modality is active, the others are blocked. The hint line at
+the bottom of the panel shows the active modality's keys.
 
-- data models and storage format
-- system boundaries and interfaces
-- async patterns and concurrency risks
-- test strategy and coverage gaps
-- dependency choices and their trade-offs
+## System prompt structure
 
-### Stage 5 — Finalize
-
-The AI produces clean Markdown for each artifact and proposes it as an edit to the relevant section of `project.md`. The user reviews and approves each proposed change before anything is written to disk.
-
-Proposed edits use the `<edit path="…">` block format:
-
-```
-<edit path="projects/my-project/project.md">
-# My Project
-
-One paragraph description here.
-
-## Architecture
-...
-</edit>
-```
-
-The TUI shows a diff preview. The user presses `y` to approve or `n` to reject.
-
-### Stage 6 — Track
-
-Once the roadmap and plan of work are written, Sparkle's tracking system monitors progress against them. The dashboard shows:
-
-- words written per day and per week
-- active days streak
-- 30-day heatmap of writing activity
-- milestone completion rate derived from the roadmap
-
-The AI can read tracking data and ask: "You haven't touched this project in 12 days. Is it stuck? Want to revisit the plan?"
-
-## Prompt Engineering
-
-Sparkle AI is not just "Claude with a project context." It is shaped by:
-
-### System Prompt
-
-The base system prompt establishes the AI's role and hard constraints:
+The system prompt is composed at request time from four parts, in this
+order:
 
 ```
-You are Sparkle's project development mentor.
-Your job is to help one person turn a rough idea into a structured, tracked project.
+1. Base prompt          ← .sparkle/prompts/system.md (or built-in default)
+2. Skill fragment       ← .sparkle/skills/<active-skill>.md
+3. Mode block           ← per-mode instruction (clarify/structure/…)
+4. Project context      ← title, fields, body sections, tracking stats
+```
+
+Each part is rendered into a `strings.Builder` in `BuildSystemPrompt()`.
+Missing parts (e.g. no skill, no project loaded) collapse cleanly.
+
+### Base prompt (default)
+
+```
+You are Sparkle's local project mentor.
+Your job is to help one person turn a rough idea into a structured,
+tracked project.
 
 You MUST:
 - Ask one question at a time.
@@ -140,105 +117,272 @@ You MUST NOT:
 - Silently overwrite existing content.
 ```
 
-### Mode-Specific Instructions
+The base prompt is editable: `.sparkle/prompts/system.md`. If absent,
+Sparkle uses the built-in default. Edits take effect on the next AI
+request.
 
-Each conversation mode appends additional instructions to the system prompt:
+### Mode block
 
-| Mode       | AI Behaviour                                                            |
-|------------|-------------------------------------------------------------------------|
-| `clarify`  | One question per turn. Prefer multiple-choice. Never guess.             |
-| `structure`| Build one artifact at a time. Ask before moving to the next.            |
-| `challenge`| Play devil's advocate. Find the three most dangerous assumptions.        |
-| `architect`| Advise on technical design. Name trade-offs explicitly.                 |
-| `expand`   | Go deeper on the selected section. No new constraints.                  |
-| `finalize` | Produce clean Markdown. Wrap every file change in an `<edit>` block.   |
+Each mode appends a stanza like:
 
-### Skills (Planned)
+```
+Current mode: CLARIFY — ask precise, probing questions to sharpen
+the idea before giving answers.
+```
 
-Future versions will support injectable **skills** — reusable prompt fragments that specialise the AI for specific project types:
+Mode blocks are not user-editable in v2 (they would defeat the
+pipeline contract).
 
-- `skill:cli-tool` — focus on flag design, help text, shell integration
-- `skill:web-api` — focus on REST/GraphQL shape, auth, rate limiting
-- `skill:library` — focus on API surface, semver discipline, documentation
-- `skill:solo-saas` — focus on pricing, retention, onboarding
-- `skill:open-source` — focus on contributor experience, governance, licensing
+### Quiz format
 
-Skills are injected between the base system prompt and the mode-specific instructions.
+The system prompt teaches Claude how to embed a quiz:
 
-## Provider Interface (current)
+```
+<quiz>
+Your question here?
+a) First option
+b) Second option
+c) Third option
+d) Something else — describe
+</quiz>
+```
+
+Rules: at most one quiz per response; always include a free-text
+fallback ("Something else — …"); never embed a quiz inside an `<edit>`
+block.
+
+### Edit format
+
+```
+<edit path="projects/sparkle/project.md">
+# Description
+
+A local-first Go TUI for…
+</edit>
+```
+
+The path is workspace-relative. The TUI shows a diff preview before
+writing. Approval is explicit, per-file.
+
+### Stage-complete signal
+
+When the AI judges the current stage done:
+
+```
+…regular response text…
+<stage-complete />
+```
+
+The TUI strips the tag and shows "stage done · tab → structure" in the
+hint line. The user confirms by pressing tab; the AI never auto-advances.
+
+## Skills — extensible specialisation
+
+A **skill** is a reusable prompt fragment that specialises the AI for a
+project type. v2 makes skills **filesystem-backed** so the user can
+author their own without recompiling.
+
+### Built-in seed skills
+
+The first launch seeds `.sparkle/skills/` with the v1 hardcoded
+fragments as Markdown files:
+
+- `cli-tool.md`
+- `web-api.md`
+- `library.md`
+- `solo-saas.md`
+- `open-source.md`
+
+The user can edit, duplicate, or remove any of them.
+
+### File format
+
+```md
+---
+schema_version: 1
+key: web-api
+label: Web API
+description: REST/GraphQL shape, auth, rate limiting, error contracts
+---
+
+Project type: WEB API.
+Additional focus:
+- REST resource naming…
+- Auth strategy: JWT, API keys, OAuth2…
+- Rate limiting: per-IP, per-user, per-endpoint…
+```
+
+`key` is the unique identifier (kebab-case). `label` is the human name
+shown in the picker. `description` is the one-liner shown when a row is
+selected. Body is the prompt fragment injected into the system prompt.
+
+### Loading
+
+`internal/skill.Load(workspaceRoot)` walks `.sparkle/skills/*.md`,
+parses frontmatter + body, and returns `[]domain.Skill`. The Settings
+screen renders this list as a picker. The active skill is stored as
+`active_skill = "<key>"` in `config.toml`.
+
+### Selection
+
+The skill picker is a row in the Settings modal. Hovering a row shows
+the skill's description; pressing `enter` activates it. Activation
+broadcasts `SkillChangedMsg` and the AI panel updates its provider line.
+
+### Validation
+
+Invalid skill files (missing key, missing body, bad frontmatter) are
+logged to the status bar on load and skipped. The picker shows them
+greyed-out with the error reason.
+
+## Provider interface
 
 ```go
+package domain
+
 type Provider interface {
     Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error)
+    // Ping does a minimal round-trip to validate auth + connectivity.
+    // Used by the Settings "Test connection" action.
+    Ping(ctx context.Context) error
 }
 
 type CompletionRequest struct {
     Messages []Message
-    Mode     Mode
     Context  ProjectContext
+    Mode     Mode
+    Skill    Skill         // resolved Skill value, includes Body
+    System   string        // optional override of the base prompt
 }
 
 type CompletionResponse struct {
     Text          string
     ProposedEdits []ProposedEdit
+    Quizzes       []Quiz
+    StageComplete bool
 }
 ```
 
-`ProposedEdit` carries a file path, a description, and the full new content of the file.
+`Provider` lives in the domain package. Implementations in
+`internal/ai/`:
 
-## Mode Taxonomy
+- `MockProvider` — deterministic local replies, no network.
+- `AnthropicProvider` — POST `https://api.anthropic.com/v1/messages`,
+  headers `x-api-key`, `anthropic-version: 2023-06-01`.
 
-```go
-const (
-    ModeClarify   Mode = "clarify"
-    ModeStructure Mode = "structure"
-    ModeChallenge Mode = "challenge"
-    ModeArchitect Mode = "architect"
-    ModeExpand    Mode = "expand"
-    ModeFinalize  Mode = "finalize"
-)
+## Provider selection
+
+Selection logic in `NewRoot`:
+
+1. If `cfg.ResolvedAPIKey()` is empty → `MockProvider`.
+2. Else → `AnthropicProvider(key, cfg.AIModel)`.
+
+The active provider name is shown in the AI panel's chrome:
+
+```
+claude · sonnet-4-6 · skill: web-api
 ```
 
-The user cycles modes with `tab` / `shift+tab` in the AI screen. The current mode is shown in a mode bar above the chat.
+A `mock provider · local` indicator replaces it when no key is set.
 
-## Real Provider
+## Models
 
-The real provider calls the Anthropic Messages API (`POST /v1/messages`). The API key is set via:
+Default: `claude-haiku-4-5` for fast, cheap iteration.
 
-1. `ANTHROPIC_API_KEY` environment variable (preferred — never committed)
-2. `anthropic_api_key` in `.sparkle/config.toml` (for convenience)
+Settings model picker offers:
+- `claude-haiku-4-5` — fast, cheap, recommended for iterative quizzing
+- `claude-sonnet-4-6` — balanced, recommended for architecture mode
+- `claude-opus-4-7` — slow, expensive, reserved for finalize/long
+  edits
 
-The default model is `claude-haiku-4-5`. Override with `ai_model` in config.
+The picker is a dropdown row in Settings.
 
-## Mock Provider
+## Test connection
 
-`mock_provider.go` returns deterministic canned responses keyed off the last user message. Used when no API key is configured. Enough for the AI screen to render real-looking output and for tests to assert on flow, not content.
+The Settings modal's "Test connection" button:
 
-## AI Must Do
+1. Calls `provider.Ping(ctx)` with a 10-second timeout.
+2. On success, shows green `✓ connected · model claude-haiku-4-5 ·
+   150ms`.
+3. On failure, shows the actual error inline (not just "failed"). The
+   row stays expanded until the user dismisses it.
 
-- Ask one question at a time when context is thin
-- Use multiple-choice quizzes to speed up decisions and reduce cognitive load
-- Challenge weak assumptions before generating structure
-- Help define target audience before architecture
-- Preserve the user's voice in generated Markdown
-- Propose file edits explicitly via `<edit>` blocks
-- Ask for approval before any write
-- Reference tracking data to keep the user accountable
+## Session persistence
 
-## AI Must Not Do
+Every AI conversation is logged to
+`.sparkle/sessions/<project_id>.jsonl`, one JSON object per line:
 
-- Silently overwrite project files
-- Invent facts about a project it has not read
-- Skip the challenge stage to make the user feel validated
-- Generate large specs before earning sufficient context
-- Push unnecessary complexity or dependencies
-- Treat the user's first answer as final — probe further
+```json
+{"ts":"2026-04-29T10:15:00+03:00","role":"user","content":"…"}
+{"ts":"2026-04-29T10:15:08+03:00","role":"assistant","content":"…","mode":"clarify","stage_complete":false}
+{"ts":"2026-04-29T10:15:15+03:00","role":"user","content":"a) …","kind":"quiz_answer"}
+```
 
-## Roadmap
+On project select, the AI panel loads the last 20 turns and presents
+them as the conversation history. The user can scroll older turns with
+`pgup`.
 
-- **M5** (done): provider interface, mock provider, prompt builder, basic chat screen
-- **M6** (done): real Anthropic provider, mode taxonomy, ProposedEdit model, approve/reject flow
-- **M7** (planned): quiz-mode UX — multiple-choice input widget, answer history, stage tracker
-- **M8** (planned): artifact pipeline UI — step-by-step wizard view, artifact completion status
-- **M9** (planned): skills system — injectable prompt fragments, skill selection in settings
-- **M10** (planned): AI-aware tracking — AI reads event data, surfaces progress insights in chat
+## Tracking-aware prompts
+
+When the project has tracking data, the system prompt includes a
+"Tracking data" section:
+
+```
+Tracking data (actual workspace activity):
+  Words written today: 320
+  Words written this week: 1840
+  Active-day streak: 12 days
+  Active days this week: 5
+```
+
+If `DaysSinceActive > 1`, the prompt adds:
+
+```
+  Days since last activity: 4 — consider asking why the project
+  stalled.
+```
+
+The `MockProvider` already implements this; `AnthropicProvider` must
+preserve the same fields.
+
+## What the AI must not do
+
+- Silently overwrite project files.
+- Invent facts about a project it has not read.
+- Skip the challenge stage to make the user feel validated.
+- Generate large specs before earning sufficient context.
+- Push unnecessary complexity or dependencies.
+- Treat the user's first answer as final — probe further.
+- Embed a quiz inside an `<edit>` block.
+- Auto-advance pipeline stage without explicit user confirmation.
+
+## What the AI must do
+
+- Ask one question at a time when context is thin.
+- Use quizzes to speed up enumerable decisions.
+- Challenge weak assumptions before generating structure.
+- Help define target audience before architecture.
+- Preserve the user's voice in generated Markdown.
+- Propose file edits via explicit `<edit>` blocks.
+- Ask for approval before any write.
+- Reference tracking data to keep the user accountable.
+
+## Implementation notes
+
+- The system prompt builder lives in
+  `internal/ai/system_prompt.go`. It accepts the base, skill, mode,
+  context, and tracking and produces the final string.
+- The Anthropic provider parses `<edit>`, `<quiz>`, and `<stage-complete />`
+  blocks in that order via `parseProposedEdits`, `parseQuizBlocks`, and
+  `parseStageComplete`. The remaining text is the user-visible message.
+- The mock provider keys off the last user message; it does not parse
+  blocks but emits structured `Quiz`, `ProposedEdit`, and
+  `StageComplete: true` directly.
+- Quiz responses with fewer than 2 choices are dropped (logged as a
+  warning).
+
+## Roadmap pointer
+
+v1 milestones M5–M10 built the AI plumbing. v2 milestones M14 (panel
+embedding) and M15 (filesystem skills + editable prompts + session
+persistence + test connection) replace the user-visible surface.

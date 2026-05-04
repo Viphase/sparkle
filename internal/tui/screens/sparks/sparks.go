@@ -21,6 +21,7 @@ type Saver interface {
 	SaveSpark(domain.Spark) error
 	LoadSpark(id string) (domain.Spark, error)
 	ListSparks() ([]domain.Spark, error)
+	DeleteSpark(id string) error
 }
 
 // Promoter handles project creation when a spark is promoted. It is separate
@@ -53,8 +54,9 @@ type Model struct {
 	input     textinput.Model
 	editingID string // empty when creating, set when editing
 
-	searchInput textinput.Model
-	query       string
+	searchInput   textinput.Model
+	query         string
+	deleteConfirm bool
 
 	now func() time.Time // injectable for tests
 }
@@ -167,6 +169,9 @@ func (m *Model) updateMouse(msg tea.MouseMsg) (screens.Screen, tea.Cmd) {
 }
 
 func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
+	if key.String() != "D" {
+		m.deleteConfirm = false
+	}
 	switch key.String() {
 	case "n":
 		m.mode = modeForm
@@ -233,6 +238,17 @@ func (m *Model) updateList(key tea.KeyMsg) (screens.Screen, tea.Cmd) {
 			m.cursor = len(visible) - 1
 		}
 		m.ensureCursorVisible()
+	case "D":
+		sp, ok := m.selectedSpark()
+		if !ok || sp.Status != domain.SparkStatusArchived {
+			return m, nil
+		}
+		if m.deleteConfirm {
+			m.deleteConfirm = false
+			return m, m.deleteSparkCmd(sp)
+		}
+		m.deleteConfirm = true
+		return m, nil
 	}
 	return m, nil
 }
@@ -349,6 +365,24 @@ func (m *Model) toggleArchiveCmd(sp domain.Spark) tea.Cmd {
 	}
 }
 
+// deleteSparkCmd permanently removes an archived spark from disk.
+func (m *Model) deleteSparkCmd(sp domain.Spark) tea.Cmd {
+	saver := m.saver
+	return func() tea.Msg {
+		if saver == nil {
+			return msgs.ErrorMsg{Source: "delete-spark", Err: fmt.Errorf("no storage configured")}
+		}
+		if err := saver.DeleteSpark(sp.ID); err != nil {
+			return msgs.ErrorMsg{Source: "delete-spark", Err: err}
+		}
+		items, err := saver.ListSparks()
+		if err != nil {
+			return msgs.ErrorMsg{Source: "list-sparks", Err: err}
+		}
+		return msgs.SparksLoadedMsg{Items: items}
+	}
+}
+
 // promoteSparkCmd creates a project from the spark, marks the spark as
 // promoted, and returns a SparkPromotedMsg so the root can route to Projects.
 func (m *Model) promoteSparkCmd(sp domain.Spark) tea.Cmd {
@@ -455,9 +489,12 @@ func (m *Model) View(width, height int) string {
 		rows = append(rows, theme.Fg(m.theme, m.theme.Subtle).
 			Render(fmt.Sprintf("showing %d-%d of %d", start+1, end, len(visible))))
 	}
-	footer := theme.Fg(m.theme, m.theme.Subtle).
-		Render(fmt.Sprintf("%d active  ·  %d archived  ·  n new  ·  e edit  ·  p promote  ·  a archive  ·  / search  ·  c clear  ·  ",
-			m.activeCount(), m.archivedCount())) + m.archiveButton()
+	footerHint := fmt.Sprintf("%d active  ·  %d archived  ·  n new  ·  e edit  ·  p promote  ·  a archive  ·  D delete (archived)  ·  / search  ·  c clear  ·  ",
+		m.activeCount(), m.archivedCount())
+	footer := theme.Fg(m.theme, m.theme.Subtle).Render(footerHint) + m.archiveButton()
+	if m.deleteConfirm {
+		footer = theme.Fg(m.theme, m.theme.Danger).Render("D again to confirm delete — any other key cancels")
+	}
 	rows = append(rows, "", footer)
 
 	return box.Render(strings.Join(rows, "\n"))

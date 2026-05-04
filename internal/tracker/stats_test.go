@@ -8,8 +8,13 @@ import (
 	"github.com/viphase/sparkle/internal/tracker"
 )
 
+// makeTime returns noon on the day `daysAgo` days before today, in local time.
+// Using noon avoids UTC-vs-local boundary issues that cause tests to flip at
+// certain hours depending on the timezone the CI/dev machine runs in.
 func makeTime(daysAgo int) time.Time {
-	return time.Now().AddDate(0, 0, -daysAgo).Truncate(24 * time.Hour)
+	t := time.Now().AddDate(0, 0, -daysAgo)
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 12, 0, 0, 0, t.Location())
 }
 
 func TestCompute_empty(t *testing.T) {
