@@ -1,4 +1,4 @@
-package dashboard
+package pulse
 
 import (
 	"fmt"
@@ -23,6 +23,7 @@ type Model struct {
 	theme        theme.Theme
 	activeCount  int
 	projectCount int
+	projects     []domain.Project // M13: needed for pipeline & velocity panel
 	stats        domain.TrackingStats
 	allEvents    map[string][]domain.TrackingEvent
 	now          func() time.Time
@@ -56,6 +57,7 @@ func (m *Model) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		}
 	case msgs.ProjectsLoadedMsg:
 		m.projectCount = len(msg.Items)
+		m.projects = msg.Items
 	case msgs.TrackingLoadedMsg:
 		m.allEvents = msg.AllEvents
 		m.cachedMerged = mergeAllEvents(msg.AllEvents)
@@ -261,10 +263,68 @@ func (m *Model) chartsPanel(width, maxH int) string {
 	if maxH >= 24 {
 		rows = append(rows, "", center(m.trendSparkline(merged, now, width)))
 	}
+	if maxH >= 30 || len(m.projects) > 0 {
+		rows = append(rows, "", center(m.pipelinePanel(now, width)))
+	}
 
 	return theme.Base(m.theme).Width(width).Render(
 		lipgloss.JoinVertical(lipgloss.Left, rows...),
 	)
+}
+
+// pipelinePanel renders the fifth Pulse panel: a row per active project showing
+// pipeline stage and 14-day velocity. Answers the fourth Pulse question
+// ("where is each project in its pipeline?").
+//
+// Pure rendering; data comes from m.projects + per-project events.
+func (m *Model) pipelinePanel(now time.Time, width int) string {
+	caption := theme.Fg(m.theme, m.theme.Subtle).Render("active projects · pipeline & velocity")
+	if len(m.projects) == 0 {
+		empty := theme.Fg(m.theme, m.theme.Muted).Render(
+			"no projects yet — promote a spark to start the pipeline")
+		return lipgloss.JoinVertical(lipgloss.Left, caption, empty)
+	}
+
+	stageGlyph := map[tracker.Stage]string{
+		tracker.StageSpark:    "✦",
+		tracker.StageShaping:  "◐",
+		tracker.StageBuilding: "▲",
+		tracker.StageShipping: "◆",
+		tracker.StageDone:     "✓",
+	}
+	stageColor := map[tracker.Stage]lipgloss.Color{
+		tracker.StageSpark:    m.theme.Accent,
+		tracker.StageShaping:  m.theme.Primary,
+		tracker.StageBuilding: m.theme.Warning,
+		tracker.StageShipping: m.theme.Success,
+		tracker.StageDone:     m.theme.Muted,
+	}
+
+	rows := []string{caption}
+	const titleW = 22
+	const stageW = 10
+	for _, p := range m.projects {
+		if p.Status == domain.ProjectStatusArchived {
+			continue
+		}
+		evs := m.allEvents[p.ID]
+		stage := tracker.PipelineStage(p, evs, now)
+		velocity := tracker.ProjectVelocity(evs, now, 14*24*time.Hour)
+
+		title := p.Title
+		if len(title) > titleW {
+			title = title[:titleW-1] + "…"
+		}
+		titleCell := theme.Fg(m.theme, m.theme.Foreground).
+			Render(fmt.Sprintf("%-*s", titleW, title))
+		stageCell := theme.Fg(m.theme, stageColor[stage]).Bold(true).
+			Render(fmt.Sprintf("%s %-*s", stageGlyph[stage], stageW-2, stage))
+		velCell := theme.Fg(m.theme, m.theme.Subtle).
+			Render(fmt.Sprintf("%6.1f w/d", velocity))
+		row := lipgloss.JoinHorizontal(lipgloss.Top, titleCell, stageCell, velCell)
+		rows = append(rows, row)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func (m *Model) statsRow() string {

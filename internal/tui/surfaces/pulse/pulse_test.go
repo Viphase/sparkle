@@ -1,4 +1,4 @@
-package dashboard
+package pulse
 
 import (
 	"strings"

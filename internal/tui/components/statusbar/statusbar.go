@@ -66,6 +66,11 @@ func (m Model) SetError(source string, err error) Model {
 // HasError reports whether an error is currently shown.
 func (m Model) HasError() bool { return m.err != "" }
 
+// ErrorText returns the full error string currently set on the bar (or "").
+// Used by the root error-expansion modal so the user can read errors that
+// were truncated to fit on a single status-bar line.
+func (m Model) ErrorText() string { return m.err }
+
 // ClearError dismisses the current error and returns to the default hint.
 func (m Model) ClearError() Model {
 	m.err = ""

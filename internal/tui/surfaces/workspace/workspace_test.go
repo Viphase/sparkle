@@ -51,18 +51,32 @@ func TestWorkspaceAIPanelHiddenByDefault(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAIPanelTogglesWithI(t *testing.T) {
+func TestWorkspaceAIPanelOpenWithA(t *testing.T) {
 	m := New(theme.PastelDark(), "")
 	m.items = []railItem{{kind: "spark", id: "s1", title: "Test Spark"}}
 
-	// Update mutates m in-place (pointer receiver) — check m directly.
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	// "a" opens panel and focuses input.
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	if !m.aiVisible {
-		t.Error("AI panel should be visible after pressing 'i'")
+		t.Error("AI panel should be visible after pressing 'a'")
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	if !m.aiInput.Focused() {
+		t.Error("AI input should be focused after pressing 'a'")
+	}
+
+	// First esc blurs input; panel stays open.
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !m.aiVisible {
+		t.Error("AI panel should still be visible after first esc (only blurs input)")
+	}
+	if m.aiInput.Focused() {
+		t.Error("AI input should be blurred after first esc")
+	}
+
+	// Second esc closes panel.
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.aiVisible {
-		t.Error("AI panel should be hidden after pressing 'i' again")
+		t.Error("AI panel should be hidden after second esc")
 	}
 }
 

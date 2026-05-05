@@ -14,6 +14,7 @@ import (
 	"github.com/viphase/sparkle/internal/domain"
 	"github.com/viphase/sparkle/internal/storage/markdown"
 	"github.com/viphase/sparkle/internal/tui"
+	"github.com/viphase/sparkle/internal/tui/wizard"
 	"github.com/viphase/sparkle/internal/workspace"
 )
 
@@ -42,10 +43,33 @@ func run(args []string, stdout io.Writer) error {
 		return fmt.Errorf("unknown command %q", command)
 	}
 
+	// Detect first run BEFORE workspace.Open creates .sparkle/.
+	firstRun := isFirstRun(root)
+
 	ws, err := workspace.Open(root)
 	if err != nil {
 		return fmt.Errorf("open workspace %s: %w", root, err)
 	}
+
+	if firstRun {
+		res, err := runWizard(root)
+		if err != nil {
+			return fmt.Errorf("first-run wizard: %w", err)
+		}
+		if res.Cancelled {
+			return nil
+		}
+		// Persist wizard outcome before main TUI starts.
+		if err := config.Save(ws.Root, res.Config); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+		if res.FirstSparkTitle != "" {
+			if err := saveFirstSpark(ws.Root, res.FirstSparkTitle); err != nil {
+				fmt.Fprintf(os.Stderr, "warn: save first spark: %v\n", err)
+			}
+		}
+	}
+
 	cfg, err := config.Ensure(ws.Root)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -168,6 +192,38 @@ func sampleProjects() []domain.Project {
 			UpdatedAt:      base.Add(3 * 24 * time.Hour),
 		},
 	}
+}
+
+// isFirstRun reports whether root has no .sparkle/config.toml yet, indicating
+// a cold start where the setup wizard should run.
+func isFirstRun(root string) bool {
+	_, err := os.Stat(config.Path(root))
+	return os.IsNotExist(err)
+}
+
+// runWizard launches the first-run wizard as its own tea.Program and returns
+// its result.
+func runWizard(defaultWS string) (wizard.Result, error) {
+	w := wizard.New(defaultWS, nil)
+	p := tea.NewProgram(w, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return wizard.Result{}, err
+	}
+	return w.Result(), nil
+}
+
+// saveFirstSpark persists the user's first spark to the workspace.
+func saveFirstSpark(root, title string) error {
+	store := markdown.NewStore(root)
+	now := time.Now().UTC()
+	sp := domain.Spark{
+		ID:        domain.NewSparkID(now),
+		Title:     title,
+		Status:    domain.SparkStatusNew,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	return store.SaveSpark(sp)
 }
 
 func sampleSparks() []domain.Spark {

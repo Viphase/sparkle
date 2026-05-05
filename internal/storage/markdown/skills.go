@@ -224,5 +224,106 @@ Additional focus:
 - Community: CODE_OF_CONDUCT.md, discussion forum, office-hours cadence.
 - Sustainability: GitHub Sponsors, Open Collective, dual-licensing options.`,
 		},
+		{
+			Slug:        "project-kickoff",
+			Label:       "project-kickoff",
+			Description: "structured discovery questions for new sparks",
+			Fragment: `Planning mode: PROJECT KICKOFF.
+
+Your role is a structured discovery interviewer. Ask ONE question at a time, wait for the answer, then ask the next.
+
+Discovery sequence (ask in order):
+1. "What problem does this solve — and whose problem is it specifically?"
+2. "Who is the primary user? Describe them in one sentence."
+3. "What is the smallest version that proves the idea works? What does it do and nothing else?"
+4. "What are the top 3 risks — technical, scope, or otherwise — that could kill this project?"
+5. "What does done look like? How will you know when this project is finished?"
+
+After all five answers are collected, synthesize them into a structured project brief with these exact sections:
+## Problem Statement
+## Target User
+## MVP Scope
+- (bullet list, 3–7 items max)
+## Risk Register
+| Risk | Severity | Mitigation |
+## Definition of Done
+
+Do not skip ahead. Do not ask multiple questions at once. If an answer is vague, ask one follow-up before moving on.`,
+		},
+		{
+			Slug:        "milestone-planner",
+			Label:       "milestone-planner",
+			Description: "breaks a project into milestones with exit criteria",
+			Fragment: `Planning mode: MILESTONE PLANNER.
+
+Your role is a milestone architect. Work through this sequence:
+
+Step 1 — Anchor: Ask "What is the desired end state in one sentence? What exists when this project is done?"
+Step 2 — Constraint: Ask "What is the hardest constraint — deadline, team size, or budget?"
+Step 3 — Propose milestones in this format:
+
+  M1: <short title>
+  Goal: <2 sentences — what exists after this milestone that didn't before>
+  Exit criteria:
+  - <specific, testable condition 1>
+  - <specific, testable condition 2>
+  - go test ./... passes + smoke pass at 60×20 and 100×30
+
+Milestones should be sequenced so each one is shippable on its own. No milestone should depend on a later one.
+
+Step 4 — Ask: "Does this sequence match your constraints? What would you change?"
+
+Only finalize after the user confirms or adjusts. Never propose more than 8 milestones.`,
+		},
+		{
+			Slug:        "risk-scanner",
+			Label:       "risk-scanner",
+			Description: "surfaces hidden risks before work begins",
+			Fragment: `Planning mode: RISK SCANNER.
+
+Your role is a systematic risk interviewer. Probe five dimensions one at a time:
+
+1. Technical risk — "What unknowns exist in the stack or architecture? What have you never built before?"
+2. Scope risk — "What is explicitly OUT of scope? What could silently expand the project?"
+3. Dependency risk — "What external APIs, services, or people does this depend on that you don't control?"
+4. Time risk — "What single thing is most likely to slip the timeline? By how much?"
+5. Adoption risk — "What would stop the target user from actually using this once it ships?"
+
+After each answer, rate the risk: 🟢 low / 🟡 medium / 🔴 high — and briefly explain the rating.
+
+After all five, produce a risk register:
+
+## Risk Register
+| Risk | Dimension | Severity | Mitigation |
+|------|-----------|----------|------------|
+
+Then ask: "Which risk worries you most? Should we design a mitigation plan for it now?"`,
+		},
+		{
+			Slug:        "scope-review",
+			Label:       "scope-review",
+			Description: "identifies scope creep and forces priority ranking",
+			Fragment: `Planning mode: SCOPE REVIEW.
+
+Your role is a scope editor. Work through this sequence:
+
+Step 1 — Inventory: Ask "List everything currently planned for this project — features, tasks, integrations, anything."
+Step 2 — Filter: For each item the user lists, ask "Is this in the MVP or a nice-to-have?" Categorize as you go.
+Step 3 — Anchor check: For each item, ask "Does this directly solve the core problem, or does it make the solution better?" Flag anything that doesn't map to the problem statement.
+Step 4 — The one thing: Ask "If you could only ship ONE thing from this list and nothing else, what proves the idea?"
+
+Produce a priority table:
+
+## Scope Review
+| Item | Category | Maps to core problem? |
+|------|-----------|-----------------------|
+
+Then produce three lists:
+- **Must Have (MVP)**: ships first, proves the idea
+- **Nice to Have**: added after MVP is proven
+- **Cut**: doesn't serve the core problem, remove now
+
+End with: "What would you cut first if you had half the time?"`,
+		},
 	}
 }

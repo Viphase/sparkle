@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/viphase/sparkle/internal/workspace"
 )
@@ -29,6 +30,12 @@ type Config struct {
 	// guide for a specific project type. Empty string means no specialisation.
 	// Valid values match domain.Skill constants (e.g. "cli-tool", "web-api").
 	ActiveSkill string
+	// TouchWindow is the recency cutoff for a "recently touched" project.
+	TouchWindow time.Duration
+	// SessionIdle is the inactivity gap that ends a writing session.
+	SessionIdle time.Duration
+	// StreakGrace is how long a streak survives a missed day.
+	StreakGrace time.Duration
 }
 
 func Defaults() Config {
@@ -37,6 +44,9 @@ func Defaults() Config {
 		WordsThreshold: 10,
 		MouseEnabled:   true,
 		AIModel:        "claude-haiku-4-5",
+		TouchWindow:    7 * 24 * time.Hour,
+		SessionIdle:    20 * time.Minute,
+		StreakGrace:    36 * time.Hour,
 	}
 }
 
@@ -108,6 +118,11 @@ func parseInto(cfg *Config, raw string) error {
 		if line == "" {
 			continue
 		}
+		// Skip TOML section headers ([section]) — sections are decorative; all
+		// keys live in a flat namespace for back-compat with the v1 reader.
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			continue
+		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			return fmt.Errorf("parse config line %d: expected key = value", lineNo+1)
@@ -154,6 +169,24 @@ func parseInto(cfg *Config, raw string) error {
 				return fmt.Errorf("parse config line %d: %w", lineNo+1, err)
 			}
 			cfg.ActiveSkill = s
+		case "touch_window":
+			d, err := parseDuration(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: touch_window %w", lineNo+1, err)
+			}
+			cfg.TouchWindow = d
+		case "session_idle":
+			d, err := parseDuration(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: session_idle %w", lineNo+1, err)
+			}
+			cfg.SessionIdle = d
+		case "streak_grace":
+			d, err := parseDuration(value)
+			if err != nil {
+				return fmt.Errorf("parse config line %d: streak_grace %w", lineNo+1, err)
+			}
+			cfg.StreakGrace = d
 		default:
 			// Preserve forward compatibility: future config keys should not
 			// make an older binary refuse to boot.
@@ -163,7 +196,33 @@ func parseInto(cfg *Config, raw string) error {
 	if strings.TrimSpace(cfg.Theme) == "" {
 		cfg.Theme = Defaults().Theme
 	}
+	d := Defaults()
+	if cfg.TouchWindow <= 0 {
+		cfg.TouchWindow = d.TouchWindow
+	}
+	if cfg.SessionIdle <= 0 {
+		cfg.SessionIdle = d.SessionIdle
+	}
+	if cfg.StreakGrace <= 0 {
+		cfg.StreakGrace = d.StreakGrace
+	}
 	return nil
+}
+
+func parseDuration(value string) (time.Duration, error) {
+	s, err := parseString(value)
+	if err != nil {
+		// duration value may be unquoted (e.g. session_idle = 20m).
+		s = strings.TrimSpace(value)
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q (use Go duration syntax like 20m, 36h)", s)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("duration must be positive")
+	}
+	return d, nil
 }
 
 func parseString(value string) (string, error) {
@@ -216,11 +275,23 @@ func Save(root string, cfg Config) error {
 }
 
 func marshalConfig(cfg Config) []byte {
+	d := Defaults()
+	if cfg.TouchWindow <= 0 {
+		cfg.TouchWindow = d.TouchWindow
+	}
+	if cfg.SessionIdle <= 0 {
+		cfg.SessionIdle = d.SessionIdle
+	}
+	if cfg.StreakGrace <= 0 {
+		cfg.StreakGrace = d.StreakGrace
+	}
 	var b strings.Builder
-	b.WriteString("# Sparkle workspace preferences\n")
-	b.WriteString(fmt.Sprintf("theme = %q\n", cfg.Theme))
-	b.WriteString(fmt.Sprintf("words_threshold = %d\n", cfg.WordsThreshold))
-	b.WriteString(fmt.Sprintf("mouse_enabled = %v\n", cfg.MouseEnabled))
+	b.WriteString("# Sparkle workspace preferences\n\n")
+
+	b.WriteString("[appearance]\n")
+	b.WriteString(fmt.Sprintf("theme = %q\n\n", cfg.Theme))
+
+	b.WriteString("[ai]\n")
 	b.WriteString(fmt.Sprintf("ai_model = %q\n", cfg.AIModel))
 	if cfg.ActiveSkill != "" {
 		b.WriteString(fmt.Sprintf("active_skill = %q\n", cfg.ActiveSkill))
@@ -230,6 +301,17 @@ func marshalConfig(cfg Config) []byte {
 	if cfg.AnthropicAPIKey != "" {
 		b.WriteString(fmt.Sprintf("anthropic_api_key = %q\n", cfg.AnthropicAPIKey))
 	}
+	b.WriteString("\n")
+
+	b.WriteString("[tracking]\n")
+	b.WriteString(fmt.Sprintf("words_threshold = %d\n", cfg.WordsThreshold))
+	b.WriteString(fmt.Sprintf("touch_window = %q\n", cfg.TouchWindow.String()))
+	b.WriteString(fmt.Sprintf("session_idle = %q\n", cfg.SessionIdle.String()))
+	b.WriteString(fmt.Sprintf("streak_grace = %q\n", cfg.StreakGrace.String()))
+	b.WriteString("\n")
+
+	b.WriteString("[mouse]\n")
+	b.WriteString(fmt.Sprintf("mouse_enabled = %v\n", cfg.MouseEnabled))
 	return []byte(b.String())
 }
 

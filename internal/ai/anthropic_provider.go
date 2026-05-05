@@ -17,7 +17,7 @@ import (
 const (
 	anthropicAPIURL     = "https://api.anthropic.com/v1/messages"
 	anthropicAPIVersion = "2023-06-01"
-	defaultMaxTokens    = 1024
+	defaultMaxTokens    = 2048
 )
 
 // HTTPDoer is the interface the provider uses to make requests.
@@ -248,7 +248,8 @@ func BuildSystemPrompt(mode domain.Mode, ctx domain.ProjectContext, skills ...do
 	var b strings.Builder
 	b.WriteString("You are Sparkle's local project guide.\n")
 	b.WriteString("Help turn rough ideas into practical, structured project work.\n")
-	b.WriteString("Be concise. Ask one clarifying question at a time when context is thin.\n")
+	b.WriteString("Be concise. Ask ONE question at a time — never stack multiple questions in one response.\n")
+	b.WriteString("When the user says they just created a project and asks you to start the discovery interview, begin immediately with the first question only.\n")
 	b.WriteString("Never invent facts. Never write files without explicit permission.\n\n")
 
 	b.WriteString("QUIZ FORMAT — when a question has enumerable answers, wrap it in a quiz block\n")

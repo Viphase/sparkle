@@ -17,8 +17,8 @@ import (
 	"github.com/viphase/sparkle/internal/tui/components/tabs"
 	"github.com/viphase/sparkle/internal/tui/msgs"
 	"github.com/viphase/sparkle/internal/tui/screens"
-	"github.com/viphase/sparkle/internal/tui/screens/dashboard"
 	"github.com/viphase/sparkle/internal/tui/screens/settings"
+	"github.com/viphase/sparkle/internal/tui/surfaces/pulse"
 	"github.com/viphase/sparkle/internal/tui/theme"
 	workspacesurf "github.com/viphase/sparkle/internal/tui/surfaces/workspace"
 	"github.com/viphase/sparkle/internal/workspace"
@@ -63,6 +63,8 @@ type Root struct {
 	cfg          config.Config
 	mouseEnabled bool
 	showHelp     bool // L7: context-aware help overlay
+	showSettings bool // M11: settings modal overlay (`,` toggles)
+	showError    bool // M11: full error text overlay (`?` when an error is shown)
 }
 
 // NewRoot wires the root model with defaults. ws and store may be zero/nil for tests.
@@ -91,7 +93,7 @@ func NewRootWithConfig(ws workspace.Workspace, store *markdown.Store, cfg config
 		mouseEnabled: cfg.MouseEnabled,
 		screens: map[Route]screens.Screen{
 			RouteWorkspace: &workspaceScreen{m: wsModel},
-			RoutePulse:     dashboard.New(t),
+			RoutePulse:     pulse.New(t),
 			RouteSettings:  settings.New(t, ws, cfg),
 		},
 	}
@@ -107,7 +109,7 @@ func routeHint(rt Route, editing bool) string {
 	}
 	switch rt {
 	case RouteWorkspace:
-		return "j/k  nav  ·  e  edit  ·  n  new spark  ·  i  AI  ·  a  ask  ·  ?  help"
+		return "j/k  nav  ·  n  new  ·  d  delete  ·  e  edit  ·  a  ask  ·  ?  help"
 	case RoutePulse:
 		return "j/k  scroll  ·  g/G  top/bottom  ·  tab  switch  ·  ?  help"
 	case RouteSettings:
@@ -258,10 +260,28 @@ func (r *Root) handleGlobalKey(m tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 	}
+	// When the settings modal is open, give it the keystroke (except global
+	// quit / dismiss). esc and `,` dismiss the modal.
+	if r.showSettings {
+		switch m.String() {
+		case "ctrl+c":
+			return tea.Quit, true
+		case "esc", ",":
+			r.showSettings = false
+			return nil, true
+		}
+		next, cmd := r.screens[RouteSettings].Update(m)
+		r.screens[RouteSettings] = next
+		return cmd, true
+	}
 	switch m.String() {
 	case "q", "ctrl+c":
 		return tea.Quit, true
 	case "esc":
+		if r.showError {
+			r.showError = false
+			return nil, true
+		}
 		if r.showHelp {
 			r.showHelp = false
 			return nil, true
@@ -271,7 +291,23 @@ func (r *Root) handleGlobalKey(m tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 	case "?":
+		// If a status-bar error is showing, `?` expands it to a full overlay.
+		// Otherwise toggle context-aware help.
+		if r.status.HasError() && !r.showError {
+			r.showError = true
+			r.showHelp = false
+			return nil, true
+		}
+		if r.showError {
+			r.showError = false
+			return nil, true
+		}
 		r.showHelp = !r.showHelp
+		return nil, true
+	case ",":
+		// Settings modal — toggleable from any surface.
+		r.showSettings = true
+		r.showHelp = false
 		return nil, true
 	case "tab":
 		r.route = r.route.Next()
@@ -385,10 +421,92 @@ func (r Root) View() string {
 	base := theme.PaintBackground(r.theme, termW, termH, assembled)
 
 	// L7: help modal — when active, paint the help view on top of base.
+	if r.showSettings {
+		return r.renderSettingsModal(base, termW, termH)
+	}
+	if r.showError {
+		return r.renderErrorModal(base, termW, termH)
+	}
 	if r.showHelp {
 		return r.renderHelpView(base, termW, termH)
 	}
 	return base
+}
+
+// renderSettingsModal paints the settings screen as a centered modal overlay
+// (~80%×70% of the terminal) so the user reaches Settings from any surface
+// via `,` without losing context.
+func (r Root) renderSettingsModal(base string, termW, termH int) string {
+	t := r.theme
+	modalW := termW * 80 / 100
+	modalH := termH * 70 / 100
+	if modalW < 40 {
+		modalW = termW
+	}
+	if modalH < 12 {
+		modalH = termH
+	}
+	// Inner area = modal minus border (1) and padding (2 horizontal cells).
+	innerW := modalW - 4
+	innerH := modalH - 2
+	if innerW < 10 {
+		innerW = 10
+	}
+	if innerH < 6 {
+		innerH = 6
+	}
+	body := r.screens[RouteSettings].View(innerW, innerH)
+	box := theme.Base(t).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(t.BorderFocus).
+		Padding(0, 1).
+		Render(body)
+	return overlayBox(base, box, termW, termH)
+}
+
+// renderErrorModal renders the full status-bar error text as a centered
+// overlay so the user can read errors that exceeded the one-line bar.
+func (r Root) renderErrorModal(base string, termW, termH int) string {
+	t := r.theme
+	header := theme.Fg(t, t.Danger).Bold(true).Render("✗ error")
+	body := theme.Fg(t, t.Foreground).Render(r.status.ErrorText())
+	hint := theme.Fg(t, t.Subtle).Italic(true).Render("? close   ·   esc dismiss")
+	maxW := termW * 80 / 100
+	if maxW < 30 {
+		maxW = termW - 4
+	}
+	wrapped := lipgloss.NewStyle().Width(maxW).Render(body)
+	box := theme.Base(t).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(t.Danger).
+		Padding(1, 2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, header, "", wrapped, "", hint))
+	return overlayBox(base, box, termW, termH)
+}
+
+// overlayBox centers `box` over `base` using the existing ANSI-aware splice
+// helper so background colors in `base` show through where `box` doesn't paint.
+func overlayBox(base, box string, termW, termH int) string {
+	boxW := lipgloss.Width(box)
+	boxH := lipgloss.Height(box)
+	startX := (termW - boxW) / 2
+	startY := (termH - boxH) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+	baseLines := strings.Split(base, "\n")
+	boxLines := strings.Split(box, "\n")
+	for i, bl := range boxLines {
+		row := startY + i
+		if row >= len(baseLines) {
+			break
+		}
+		baseLines[row] = spliceAtColumn(baseLines[row], bl, startX)
+	}
+	return strings.Join(baseLines, "\n")
 }
 
 // renderHelpView renders the context-aware help modal centered over base.
@@ -409,13 +527,12 @@ func (r Root) renderHelpView(base string, termW, termH int) string {
 		RouteWorkspace: {
 			{"j / k", "navigate rail"},
 			{"enter", "focus AI input"},
-			{"i", "toggle AI panel"},
+			{"n", "new spark"},
+			{"d", "delete item (y confirm)"},
 			{"a", "ask AI"},
-			{"g", "get unstuck"},
 			{"e", "edit item body"},
 			{"ctrl+s", "save edit (in editor)"},
-			{"esc", "cancel edit / close panel"},
-			{"n", "new spark"},
+			{"esc", "cancel / close panel"},
 			{"J / K", "scroll detail"},
 		},
 		RoutePulse: {

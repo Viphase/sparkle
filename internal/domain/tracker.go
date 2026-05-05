@@ -15,6 +15,13 @@ const (
 	EventDeadlineAdded     EventType = "deadline_added"
 	EventMoodLogged        EventType = "mood_logged"
 	EventNoteAdded         EventType = "note_added"
+	// EventStageAdvanced fires when a project moves to the next pipeline stage
+	// (e.g. spark→shaping, shaping→building). Emitted by the AI mentor on
+	// confirm-advance and by manual stage changes. Used by Pulse pipeline panel.
+	EventStageAdvanced EventType = "stage_advanced"
+	// EventEditApproved fires when the user accepts an AI-proposed <edit> block.
+	// Counted by Pulse velocity to distinguish "AI-accelerated" from cold edits.
+	EventEditApproved EventType = "edit_approved"
 )
 
 // TrackingEvent is one append-only entry in a project's event log.

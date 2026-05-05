@@ -65,10 +65,16 @@ type sparkCapturedMsg struct {
 
 // detailLoadedMsg carries the full body of the selected spark or project.
 type detailLoadedMsg struct {
-	title   string
-	body    string
-	itemID  string
-	kind    string
+	title  string
+	body   string
+	itemID string
+	kind   string
+}
+
+// itemDeletedMsg is fired after a successful delete of a spark or project.
+type itemDeletedMsg struct {
+	id   string
+	kind string
 }
 
 // Model is the v2 Workspace surface.
@@ -95,8 +101,11 @@ type Model struct {
 	editOriginal string // body before the edit began (for esc-to-revert)
 
 	// Inline spark capture (n)
-	capturing   bool
-	captureIn   textinput.Model
+	capturing bool
+	captureIn textinput.Model
+
+	// Inline delete confirmation (d)
+	deleting bool
 
 	// AI panel
 	aiMessages        []domain.Message
@@ -233,6 +242,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		m.detailTitle = "✦  " + v.spark.Title
 		m.detailBody = ""
 		return m, func() tea.Msg { return msgs.StatusMsg{Text: "✦ captured"} }
+	case itemDeletedMsg:
+		filtered := make([]railItem, 0, len(m.items))
+		for _, item := range m.items {
+			if item.id != v.id {
+				filtered = append(filtered, item)
+			}
+		}
+		m.items = filtered
+		if m.cursor >= len(m.items) && len(m.items) > 0 {
+			m.cursor = len(m.items) - 1
+		}
+		m.detailTitle, m.detailBody, m.detailID, m.detailKind = "", "", "", ""
+		if len(m.items) > 0 {
+			return m, m.selectCurrentCmd()
+		}
+		return m, func() tea.Msg { return msgs.StatusMsg{Text: "deleted"} }
 	case detailLoadedMsg:
 		m.detailTitle = v.title
 		m.detailBody = v.body
@@ -260,6 +285,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(k tea.KeyMsg) (*Model, tea.Cmd) {
+	// Delete confirmation takes priority: only y/n/esc accepted.
+	if m.deleting {
+		switch k.String() {
+		case "y":
+			return m.confirmDeleteCmd()
+		case "n", "esc":
+			m.deleting = false
+		}
+		return m, nil
+	}
+
 	// Capture modal takes priority when active.
 	if m.capturing {
 		switch k.String() {
@@ -350,8 +386,6 @@ func (m *Model) handleKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 			m.cursor--
 			return m, m.selectCurrentCmd()
 		}
-	case "i":
-		m.aiVisible = !m.aiVisible
 	case "a":
 		m.aiVisible = true
 		if !m.aiInput.Focused() {
@@ -372,15 +406,11 @@ func (m *Model) handleKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		m.capturing = true
 		m.captureIn.Focus()
 		return m, textinput.Blink
-	case "g":
-		// "Get me unstuck" — special stock prompt.
-		unstuck := "I don't know what to do next. What is the smallest concrete thing I should do right now?"
-		userMsg := domain.Message{Role: domain.MessageRoleUser, Content: unstuck}
-		m.aiMessages = append(m.aiMessages, userMsg)
-		m.aiState = aiStateWaiting
-		m.aiVisible = true
-		saveCmd := m.appendSessionTurnCmdAsync(userMsg)
-		return m, tea.Batch(saveCmd, m.sendToAICmd(m.aiMessages, false))
+	case "d":
+		if m.detailID != "" {
+			m.deleting = true
+		}
+		return m, nil
 	case "enter":
 		if len(m.items) > 0 {
 			m.aiVisible = true
@@ -523,27 +553,26 @@ func (m *Model) loadDetailCmd(item railItem) tea.Cmd {
 	}
 }
 
-// buildProjectSummary constructs a readable summary of a project for the
-// detail pane, pulling real sections from project.md via goldmark (L2).
+// buildProjectSummary renders the project body for the detail pane.
+// H1 headings become visual section separators; all other lines are passed through.
 func buildProjectSummary(p domain.Project) string {
 	var sb strings.Builder
-	if desc := markdown.BodySection(p.Body, "Description"); desc != "" {
-		sb.WriteString("Description\n")
-		sb.WriteString(strings.Repeat("─", 12) + "\n")
-		sb.WriteString(desc)
-		sb.WriteString("\n\n")
-	}
-	if ta := p.TargetAudience; ta != "" {
-		sb.WriteString("Target Audience\n")
-		sb.WriteString(strings.Repeat("─", 15) + "\n")
-		sb.WriteString(ta)
-		sb.WriteString("\n\n")
-	}
-	if rm := markdown.BodySection(p.Body, "Roadmap"); rm != "" {
-		sb.WriteString("Roadmap\n")
-		sb.WriteString(strings.Repeat("─", 7) + "\n")
-		sb.WriteString(rm)
-		sb.WriteString("\n\n")
+	body := strings.TrimSpace(p.Body)
+	if body != "" {
+		for _, line := range strings.Split(body, "\n") {
+			if strings.HasPrefix(line, "# ") {
+				label := strings.TrimPrefix(line, "# ")
+				w := len([]rune(label))
+				if w > 24 {
+					w = 24
+				}
+				sb.WriteString("\n" + label + "\n")
+				sb.WriteString(strings.Repeat("─", w) + "\n")
+			} else {
+				sb.WriteString(line + "\n")
+			}
+		}
+		sb.WriteString("\n")
 	}
 	if len(p.Tags) > 0 {
 		sb.WriteString("tags: " + strings.Join(p.Tags, ", ") + "\n")
@@ -602,6 +631,31 @@ func slugify(s string) string {
 		out = out[:32]
 	}
 	return out
+}
+
+// confirmDeleteCmd deletes the currently selected item from disk.
+func (m *Model) confirmDeleteCmd() (*Model, tea.Cmd) {
+	m.deleting = false
+	if m.workDir == "" || m.detailID == "" {
+		return m, nil
+	}
+	workDir := m.workDir
+	id := m.detailID
+	kind := m.detailKind
+	return m, func() tea.Msg {
+		store := markdown.NewStore(workDir)
+		var err error
+		switch kind {
+		case "spark":
+			err = store.DeleteSpark(id)
+		case "project":
+			err = store.DeleteProject(id)
+		}
+		if err != nil {
+			return msgs.ErrorMsg{Source: "delete", Err: err}
+		}
+		return itemDeletedMsg{id: id, kind: kind}
+	}
 }
 
 // commitEdit saves the editor content to disk and exits editing mode.
@@ -691,13 +745,25 @@ func (m *Model) rebuildRailFromProjects(projects []domain.Project) {
 }
 
 // sendToAICmd sends the current message history to the AI provider.
-// If initial is true, an empty messages slice triggers the cold-start quiz.
+// When initial is true and the message history is empty, a discovery seed
+// message is injected so the AI opens with the first kickoff question rather
+// than a generic greeting. The seed is not stored in m.aiMessages.
 func (m *Model) sendToAICmd(messages []domain.Message, initial bool) tea.Cmd {
 	if messages == nil {
 		messages = m.aiMessages
 	}
 	msgsCopy := make([]domain.Message, len(messages))
 	copy(msgsCopy, messages)
+
+	if initial && len(msgsCopy) == 0 {
+		title := m.aiContext.Title
+		seed := "I just created a new project. Please start the discovery interview — ask me the first question only."
+		if title != "" {
+			seed = fmt.Sprintf("I just created a project called %q. Please start the discovery interview — ask me the first question only.", title)
+		}
+		msgsCopy = []domain.Message{{Role: domain.MessageRoleUser, Content: seed}}
+	}
+
 	ctx := m.aiContext
 	provider := m.provider
 	skill := m.skill
@@ -761,7 +827,7 @@ func (m *Model) appendSessionTurnCmd(msg domain.Message) {
 }
 
 func (m *Model) InForm() bool {
-	return m.aiInput.Focused() || m.pendingQuiz != nil || m.editing || m.capturing
+	return m.aiInput.Focused() || m.pendingQuiz != nil || m.editing || m.capturing || m.deleting
 }
 
 // IsEditing reports whether the inline body editor is open. Root uses this to
@@ -861,9 +927,23 @@ func (m *Model) renderRail(width, height int) string {
 		)
 	}
 
-	hint := theme.Base(t).Width(width).Render(
-		theme.Fg(t, t.Subtle).Render("n new · e edit · i AI"),
-	)
+	var hintStr string
+	if m.deleting && m.detailID != "" {
+		title := ""
+		for _, item := range m.items {
+			if item.id == m.detailID {
+				title = item.title
+				break
+			}
+		}
+		if len([]rune(title)) > 18 {
+			title = string([]rune(title)[:17]) + "…"
+		}
+		hintStr = theme.Fg(t, t.Danger).Bold(true).Render("delete \"" + title + "\"? y/n")
+	} else {
+		hintStr = theme.Fg(t, t.Subtle).Render("n  new  ·  d  delete")
+	}
+	hint := theme.Base(t).Width(width).Render(hintStr)
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	content = theme.Base(t).Width(width).Height(height - 1).Render(content)
 	return lipgloss.JoinVertical(lipgloss.Left, content, hint)
@@ -906,13 +986,13 @@ func (m *Model) renderDetail(width, height int) string {
 	}
 
 	title := theme.ApplyGradOn(m.detailTitle, t.GradientFrom, t.GradientTo, t.Background, true)
-	hintH := 1
 	titleH := lipgloss.Height(title)
 
 	// L3: inline editing mode — show textarea.
 	if m.editing {
+		editorHintH := 1
 		m.editor.SetWidth(width - 4)
-		m.editor.SetHeight(height - titleH - hintH - 2)
+		m.editor.SetHeight(height - titleH - editorHintH - 2)
 		editorView := theme.Base(t).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(t.BorderFocus).
@@ -931,7 +1011,7 @@ func (m *Model) renderDetail(width, height int) string {
 	if bodyW < 10 {
 		bodyW = 10
 	}
-	bodyH := height - titleH - hintH - 2
+	bodyH := height - titleH - 2
 	if bodyH < 1 {
 		bodyH = 1
 	}
@@ -964,11 +1044,8 @@ func (m *Model) renderDetail(width, height int) string {
 	bodyText := theme.Fg(t, t.Foreground).Render(strings.Join(indented, "\n"))
 	bodyBlock := theme.Base(t).Width(width).Height(bodyH).Render(bodyText)
 
-	hint := theme.Base(t).Width(width).Render(
-		theme.Fg(t, t.Subtle).Render("e  edit  (ctrl+s saves)  ·  i  AI  ·  a  ask  ·  J/K  scroll"),
-	)
 	return theme.Base(t).Width(width).Height(height).Render(
-		lipgloss.JoinVertical(lipgloss.Left, title, "", bodyBlock, hint),
+		lipgloss.JoinVertical(lipgloss.Left, title, "", bodyBlock),
 	)
 }
 
@@ -1053,7 +1130,7 @@ func (m *Model) renderAIPanel(width, height int) string {
 	}
 	parts = append(parts, inputBar)
 
-	hintText := "enter  send  ·  esc  back  ·  i  hide"
+	hintText := "enter  send  ·  esc  close"
 	if m.pendingQuiz != nil {
 		hintText = "a-z / ↑↓  choose  ·  enter  confirm  ·  esc  skip"
 	}
@@ -1164,33 +1241,39 @@ func (m *Model) renderQuizWidget(width int) string {
 		Render(body)
 }
 
-// wordWrap wraps text to maxWidth runes per line.
+// wordWrap wraps text to maxWidth runes per line, preserving existing newlines.
 func wordWrap(text string, maxWidth int) string {
 	if maxWidth < 1 {
 		return text
 	}
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return text
-	}
-	var b strings.Builder
-	lineLen := 0
-	for i, word := range words {
-		wl := len([]rune(word))
-		if i == 0 {
-			b.WriteString(word)
-			lineLen = wl
-		} else if lineLen+1+wl > maxWidth {
-			b.WriteString("\n")
-			b.WriteString(word)
-			lineLen = wl
-		} else {
-			b.WriteString(" ")
-			b.WriteString(word)
-			lineLen += 1 + wl
+	inputLines := strings.Split(text, "\n")
+	out := make([]string, 0, len(inputLines))
+	for _, line := range inputLines {
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			out = append(out, "")
+			continue
 		}
+		var b strings.Builder
+		lineLen := 0
+		for i, word := range words {
+			wl := lipgloss.Width(word)
+			if i == 0 {
+				b.WriteString(word)
+				lineLen = wl
+			} else if lineLen+1+wl > maxWidth {
+				b.WriteString("\n")
+				b.WriteString(word)
+				lineLen = wl
+			} else {
+				b.WriteString(" ")
+				b.WriteString(word)
+				lineLen += 1 + wl
+			}
+		}
+		out = append(out, b.String())
 	}
-	return b.String()
+	return strings.Join(out, "\n")
 }
 
 func max(a, b int) int {
